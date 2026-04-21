@@ -65,4 +65,9 @@ echo "Generating Python stubs..."
   --grpc_python_out="$PYTHON_OUT_DIR" \
   "${PROTO_FILES[@]}"
 
+# grpc_tools generates absolute imports by default. Rewrite them to package-relative
+# imports so the checked-in stubs work when imported via grpc_clients.v1.
+sed -i.bak 's/^import tool_pb2 as tool__pb2$/from . import tool_pb2 as tool__pb2/' "$PYTHON_OUT_DIR/tool_pb2_grpc.py"
+rm -f "$PYTHON_OUT_DIR/tool_pb2_grpc.py.bak"
+
 echo "Protobuf generation complete"

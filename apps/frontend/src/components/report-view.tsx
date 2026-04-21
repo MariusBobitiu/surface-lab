@@ -1,10 +1,11 @@
 "use client"
 
+import * as React from "react"
 import { ArrowLeft, CalendarClock, CircleAlert, ShieldCheck } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 
-import type { EnrichedFindingResponse, Severity } from "@/types/report"
-import { useEnrichedReport } from "@/hooks/use-enriched-report"
+import type { EnrichedFindingResponse, EnrichedReportResponse, Severity } from "@/types/report"
 import { formatDateTime, getSeverityTone, severityLabel } from "@/utils/format"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -12,39 +13,29 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 
 type ReportViewProps = {
-  scanId: string
+  report: EnrichedReportResponse
 }
 
 const ACTION_ORDER: Severity[] = ["critical", "high", "medium", "low", "info"]
 
-export function ReportView({ scanId }: ReportViewProps) {
-  const reportQuery = useEnrichedReport(scanId)
+export function ReportView({ report }: ReportViewProps) {
+  const router = useRouter()
+  const [isRefreshing, startRefreshTransition] = React.useTransition()
+  const scanCompleted = report.status.toLowerCase() === "completed"
 
-  if (reportQuery.isLoading) {
-    return <ReportSkeleton />
-  }
+  React.useEffect(() => {
+    if (scanCompleted) {
+      return
+    }
 
-  if (reportQuery.isError) {
-    return (
-      <main className="mx-auto min-h-screen w-full max-w-7xl px-6 py-10 sm:px-10 lg:px-12">
-        <div className="rounded-3xl bg-card px-6 py-6">
-          <h1 className="text-xl font-semibold">Unable to load report</h1>
-          <p className="mt-2 text-sm leading-7 text-muted-foreground">{reportQuery.error.message}</p>
-          <Button asChild variant="ghost" className="mt-6 px-0">
-            <Link href="/">
-              <ArrowLeft className="size-4" />
-              Back to dashboard
-            </Link>
-          </Button>
-        </div>
-      </main>
-    )
-  }
+    const timeoutId = window.setTimeout(() => {
+      startRefreshTransition(() => {
+        router.refresh()
+      })
+    }, 3000)
 
-  const report = reportQuery.data
-  if (!report) {
-    return <ReportSkeleton />
-  }
+    return () => window.clearTimeout(timeoutId)
+  }, [router, scanCompleted])
 
   const severityItems = ACTION_ORDER.filter((severity) => report.summary[severity] > 0).map((severity) => ({
     severity,
@@ -78,7 +69,7 @@ export function ReportView({ scanId }: ReportViewProps) {
                 New scan
               </Link>
             </Button>
-            {reportQuery.isFetching ? (
+            {isRefreshing ? (
               <span className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Refreshing</span>
             ) : null}
           </div>
@@ -269,6 +260,23 @@ export function ReportView({ scanId }: ReportViewProps) {
             ))}
           </div>
         </section>
+      </div>
+    </main>
+  )
+}
+
+export function ReportErrorView({ message }: { message: string }) {
+  return (
+    <main className="mx-auto min-h-screen w-full max-w-7xl px-6 py-10 sm:px-10 lg:px-12">
+      <div className="rounded-3xl bg-card px-6 py-6">
+        <h1 className="text-xl font-semibold">Unable to load report</h1>
+        <p className="mt-2 text-sm leading-7 text-muted-foreground">{message}</p>
+        <Button asChild variant="ghost" className="mt-6 px-0">
+          <Link href="/">
+            <ArrowLeft className="size-4" />
+            Back to dashboard
+          </Link>
+        </Button>
       </div>
     </main>
   )
@@ -568,7 +576,7 @@ function getFingerprintValue(finding: EnrichedFindingResponse) {
     .trim()
 }
 
-function ReportSkeleton() {
+export function ReportSkeleton() {
   return (
     <main className="mx-auto min-h-screen w-full max-w-7xl px-6 py-8 sm:px-10 lg:px-12">
       <div className="space-y-24">
