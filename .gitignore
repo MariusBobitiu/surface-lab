@@ -413,6 +413,8 @@ pyrightconfig.json
 [Ll]ib
 [Ll]ib64
 [Ll]ocal
+!apps/frontend/src/lib/
+!apps/frontend/src/lib/**
 pyvenv.cfg
 pip-selfcheck.json
 
