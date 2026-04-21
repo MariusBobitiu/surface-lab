@@ -77,8 +77,10 @@ const nextConfig = {
   experimental: {
     serverActions: {
       allowedOrigins: [
-        "http://localhost:8000",
-        "https://surfacelab.mariusbobitiu.dev",
+        "localhost:3000",
+        "127.0.0.1:3000",
+        "surfacelab.mariusbobitiu.dev",
+        "*.mariusbobitiu.dev",
       ]
     }
   },
