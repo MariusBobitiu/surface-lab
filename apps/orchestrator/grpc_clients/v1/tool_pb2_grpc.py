@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from . import tool_pb2 as v1_dot_tool__pb2
+import tool_pb2 as tool__pb2
 
 GRPC_GENERATED_VERSION = '1.80.0'
 GRPC_VERSION = grpc.__version__
@@ -18,7 +18,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + ' but the generated code in v1/tool_pb2_grpc.py depends on'
+        + ' but the generated code in tool_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
@@ -36,28 +36,28 @@ class ToolServiceStub(object):
         """
         self.CheckHeaders = channel.unary_unary(
                 '/surfacelab.scanner.v1.ToolService/CheckHeaders',
-                request_serializer=v1_dot_tool__pb2.ToolRequest.SerializeToString,
-                response_deserializer=v1_dot_tool__pb2.ToolResult.FromString,
+                request_serializer=tool__pb2.ToolRequest.SerializeToString,
+                response_deserializer=tool__pb2.ToolResult.FromString,
                 _registered_method=True)
         self.CheckTLS = channel.unary_unary(
                 '/surfacelab.scanner.v1.ToolService/CheckTLS',
-                request_serializer=v1_dot_tool__pb2.ToolRequest.SerializeToString,
-                response_deserializer=v1_dot_tool__pb2.ToolResult.FromString,
+                request_serializer=tool__pb2.ToolRequest.SerializeToString,
+                response_deserializer=tool__pb2.ToolResult.FromString,
                 _registered_method=True)
         self.CheckFileExposure = channel.unary_unary(
                 '/surfacelab.scanner.v1.ToolService/CheckFileExposure',
-                request_serializer=v1_dot_tool__pb2.ToolRequest.SerializeToString,
-                response_deserializer=v1_dot_tool__pb2.ToolResult.FromString,
+                request_serializer=tool__pb2.ToolRequest.SerializeToString,
+                response_deserializer=tool__pb2.ToolResult.FromString,
                 _registered_method=True)
         self.Fingerprint = channel.unary_unary(
                 '/surfacelab.scanner.v1.ToolService/Fingerprint',
-                request_serializer=v1_dot_tool__pb2.ToolRequest.SerializeToString,
-                response_deserializer=v1_dot_tool__pb2.ToolResult.FromString,
+                request_serializer=tool__pb2.ToolRequest.SerializeToString,
+                response_deserializer=tool__pb2.ToolResult.FromString,
                 _registered_method=True)
         self.RunBaselineScan = channel.unary_unary(
                 '/surfacelab.scanner.v1.ToolService/RunBaselineScan',
-                request_serializer=v1_dot_tool__pb2.BaselineScanRequest.SerializeToString,
-                response_deserializer=v1_dot_tool__pb2.BaselineScanResponse.FromString,
+                request_serializer=tool__pb2.BaselineScanRequest.SerializeToString,
+                response_deserializer=tool__pb2.BaselineScanResponse.FromString,
                 _registered_method=True)
 
 
@@ -99,28 +99,28 @@ def add_ToolServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'CheckHeaders': grpc.unary_unary_rpc_method_handler(
                     servicer.CheckHeaders,
-                    request_deserializer=v1_dot_tool__pb2.ToolRequest.FromString,
-                    response_serializer=v1_dot_tool__pb2.ToolResult.SerializeToString,
+                    request_deserializer=tool__pb2.ToolRequest.FromString,
+                    response_serializer=tool__pb2.ToolResult.SerializeToString,
             ),
             'CheckTLS': grpc.unary_unary_rpc_method_handler(
                     servicer.CheckTLS,
-                    request_deserializer=v1_dot_tool__pb2.ToolRequest.FromString,
-                    response_serializer=v1_dot_tool__pb2.ToolResult.SerializeToString,
+                    request_deserializer=tool__pb2.ToolRequest.FromString,
+                    response_serializer=tool__pb2.ToolResult.SerializeToString,
             ),
             'CheckFileExposure': grpc.unary_unary_rpc_method_handler(
                     servicer.CheckFileExposure,
-                    request_deserializer=v1_dot_tool__pb2.ToolRequest.FromString,
-                    response_serializer=v1_dot_tool__pb2.ToolResult.SerializeToString,
+                    request_deserializer=tool__pb2.ToolRequest.FromString,
+                    response_serializer=tool__pb2.ToolResult.SerializeToString,
             ),
             'Fingerprint': grpc.unary_unary_rpc_method_handler(
                     servicer.Fingerprint,
-                    request_deserializer=v1_dot_tool__pb2.ToolRequest.FromString,
-                    response_serializer=v1_dot_tool__pb2.ToolResult.SerializeToString,
+                    request_deserializer=tool__pb2.ToolRequest.FromString,
+                    response_serializer=tool__pb2.ToolResult.SerializeToString,
             ),
             'RunBaselineScan': grpc.unary_unary_rpc_method_handler(
                     servicer.RunBaselineScan,
-                    request_deserializer=v1_dot_tool__pb2.BaselineScanRequest.FromString,
-                    response_serializer=v1_dot_tool__pb2.BaselineScanResponse.SerializeToString,
+                    request_deserializer=tool__pb2.BaselineScanRequest.FromString,
+                    response_serializer=tool__pb2.BaselineScanResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -148,8 +148,8 @@ class ToolService(object):
             request,
             target,
             '/surfacelab.scanner.v1.ToolService/CheckHeaders',
-            v1_dot_tool__pb2.ToolRequest.SerializeToString,
-            v1_dot_tool__pb2.ToolResult.FromString,
+            tool__pb2.ToolRequest.SerializeToString,
+            tool__pb2.ToolResult.FromString,
             options,
             channel_credentials,
             insecure,
@@ -175,8 +175,8 @@ class ToolService(object):
             request,
             target,
             '/surfacelab.scanner.v1.ToolService/CheckTLS',
-            v1_dot_tool__pb2.ToolRequest.SerializeToString,
-            v1_dot_tool__pb2.ToolResult.FromString,
+            tool__pb2.ToolRequest.SerializeToString,
+            tool__pb2.ToolResult.FromString,
             options,
             channel_credentials,
             insecure,
@@ -202,8 +202,8 @@ class ToolService(object):
             request,
             target,
             '/surfacelab.scanner.v1.ToolService/CheckFileExposure',
-            v1_dot_tool__pb2.ToolRequest.SerializeToString,
-            v1_dot_tool__pb2.ToolResult.FromString,
+            tool__pb2.ToolRequest.SerializeToString,
+            tool__pb2.ToolResult.FromString,
             options,
             channel_credentials,
             insecure,
@@ -229,8 +229,8 @@ class ToolService(object):
             request,
             target,
             '/surfacelab.scanner.v1.ToolService/Fingerprint',
-            v1_dot_tool__pb2.ToolRequest.SerializeToString,
-            v1_dot_tool__pb2.ToolResult.FromString,
+            tool__pb2.ToolRequest.SerializeToString,
+            tool__pb2.ToolResult.FromString,
             options,
             channel_credentials,
             insecure,
@@ -256,8 +256,8 @@ class ToolService(object):
             request,
             target,
             '/surfacelab.scanner.v1.ToolService/RunBaselineScan',
-            v1_dot_tool__pb2.BaselineScanRequest.SerializeToString,
-            v1_dot_tool__pb2.BaselineScanResponse.FromString,
+            tool__pb2.BaselineScanRequest.SerializeToString,
+            tool__pb2.BaselineScanResponse.FromString,
             options,
             channel_credentials,
             insecure,

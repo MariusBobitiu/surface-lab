@@ -96,6 +96,8 @@ yarn-error.log*
 .env.local
 .env.*
 !.env.example
+certificate/*
+!certificate/.gitkeep
 
 # vercel
 .vercel
@@ -411,7 +413,6 @@ pyrightconfig.json
 [Ll]ib
 [Ll]ib64
 [Ll]ocal
-[Ss]cripts
 pyvenv.cfg
 pip-selfcheck.json
 

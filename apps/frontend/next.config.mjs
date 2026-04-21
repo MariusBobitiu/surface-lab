@@ -3,7 +3,7 @@ const nextConfig = {
 	output: 'standalone',
 	reactStrictMode: true,
 	images: {
-		domains: ['localhost', 'surface-lab.com', 'www.surface-lab.com'],
+		remotePatterns: [],
 	},
 	allowedDevOrigins: [],
 	poweredByHeader: false,

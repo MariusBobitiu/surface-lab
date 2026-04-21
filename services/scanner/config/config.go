@@ -16,6 +16,10 @@ type Config struct {
 	DatabaseURL           string
 	Environment           string
 	ServiceToken          string
+	GRPCTLSEnabled        bool
+	GRPCTLSCertFile       string
+	GRPCTLSKeyFile        string
+	GRPCTLSCAFile         string
 	RateLimitRPS          float64
 	RateLimitBurst        int
 	MaxConcurrentRequests int
@@ -32,6 +36,10 @@ func Load() Config {
 		DatabaseURL:           os.Getenv("DATABASE_URL"),
 		Environment:           normalizeEnvironment(os.Getenv("APP_ENV")),
 		ServiceToken:          strings.TrimSpace(os.Getenv("SCANNER_SERVICE_TOKEN")),
+		GRPCTLSEnabled:        getEnvBool("SCANNER_GRPC_TLS_ENABLED", false),
+		GRPCTLSCertFile:       strings.TrimSpace(os.Getenv("SCANNER_GRPC_TLS_CERT_FILE")),
+		GRPCTLSKeyFile:        strings.TrimSpace(os.Getenv("SCANNER_GRPC_TLS_KEY_FILE")),
+		GRPCTLSCAFile:         strings.TrimSpace(os.Getenv("SCANNER_GRPC_TLS_CA_FILE")),
 		RateLimitRPS:          getEnvFloat("SCANNER_RATE_LIMIT_RPS", 5),
 		RateLimitBurst:        getEnvInt("SCANNER_RATE_LIMIT_BURST", 10),
 		MaxConcurrentRequests: getEnvInt("SCANNER_MAX_CONCURRENT_REQUESTS", 4),
@@ -64,6 +72,16 @@ func (c Config) Validate() error {
 		}
 
 		return fmt.Errorf("SCANNER_SERVICE_TOKEN is required when APP_ENV is not development")
+	}
+
+	if c.GRPCTLSEnabled {
+		if c.GRPCTLSCertFile == "" {
+			return fmt.Errorf("SCANNER_GRPC_TLS_CERT_FILE is required when SCANNER_GRPC_TLS_ENABLED=true")
+		}
+
+		if c.GRPCTLSKeyFile == "" {
+			return fmt.Errorf("SCANNER_GRPC_TLS_KEY_FILE is required when SCANNER_GRPC_TLS_ENABLED=true")
+		}
 	}
 
 	if c.RateLimitRPS <= 0 {
@@ -111,6 +129,22 @@ func getEnvFloat(key string, fallback float64) float64 {
 	}
 
 	return parsed
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+
+	switch strings.ToLower(raw) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func normalizeEnvironment(value string) string {
