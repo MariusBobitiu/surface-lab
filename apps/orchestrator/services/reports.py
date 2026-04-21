@@ -1,0 +1,244 @@
+from schemas.scan import (
+    EnrichedFindingResponse,
+    EnrichedReportCategoryResponse,
+    EnrichedReportResponse,
+    FindingResponse,
+    ReportCategoryResponse,
+    ReportSummaryResponse,
+    ReportTopIssueResponse,
+    ScanReportResponse,
+    ScanSummaryResponse,
+)
+from services.enrichment import enrich_findings
+from services.scans import build_summary, fetch_findings, fetch_scan
+from db.postgres import get_db_connection
+
+
+CATEGORY_MAP = {
+    "http_headers": ("http-headers", "HTTP Headers"),
+    "public_files": ("public-exposure", "Public Exposure"),
+    "sensitive_file_exposure": ("sensitive-file-exposure", "Sensitive File Exposure"),
+    "fingerprint_server": ("technology-fingerprint", "Technology Fingerprint"),
+    "fingerprint_framework": ("technology-fingerprint", "Technology Fingerprint"),
+    "fingerprint_edge": ("technology-fingerprint", "Technology Fingerprint"),
+    "fingerprint_generator": ("technology-fingerprint", "Technology Fingerprint"),
+}
+
+SEVERITY_ORDER = {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 3,
+    "info": 4,
+}
+
+CONFIDENCE_ORDER = {
+    "high": 0,
+    "medium": 1,
+    "low": 2,
+}
+
+
+def get_scan_report(scan_id: str) -> ScanReportResponse:
+    with get_db_connection() as connection:
+        scan = fetch_scan(connection, scan_id)
+        if scan is None:
+            raise LookupError("Scan not found")
+
+        findings = fetch_findings(connection, scan_id)
+
+    return build_scan_report(scan, findings)
+
+
+def get_enriched_scan_report(scan_id: str) -> EnrichedReportResponse:
+    with get_db_connection() as connection:
+        scan = fetch_scan(connection, scan_id)
+        if scan is None:
+            raise LookupError("Scan not found")
+
+        findings = fetch_findings(connection, scan_id)
+
+    enriched_findings = enrich_findings(findings)
+    return build_enriched_report(scan, findings, enriched_findings)
+
+
+def build_scan_report(scan: dict, findings: list[FindingResponse]) -> ScanReportResponse:
+    summary = build_summary(findings)
+
+    return ScanReportResponse(
+        scan_id=str(scan["id"]),
+        target=scan["target"],
+        status=scan["status"],
+        score=_build_score(summary),
+        summary=ReportSummaryResponse(**summary.model_dump()),
+        top_issues=_build_top_issues(findings),
+        categories=_build_categories(findings),
+        created_at=scan["created_at"],
+        completed_at=scan["completed_at"],
+    )
+
+
+def build_enriched_report(
+    scan: dict,
+    findings: list[FindingResponse],
+    enriched_findings: list[EnrichedFindingResponse],
+) -> EnrichedReportResponse:
+    summary = build_summary(findings)
+
+    return EnrichedReportResponse(
+        scan_id=str(scan["id"]),
+        target=scan["target"],
+        status=scan["status"],
+        score=_build_score(summary),
+        summary=ReportSummaryResponse(**summary.model_dump()),
+        top_issues=_build_enriched_top_issues(enriched_findings),
+        categories=_build_enriched_categories(enriched_findings),
+        created_at=scan["created_at"],
+        completed_at=scan["completed_at"],
+    )
+
+
+def _build_top_issues(findings: list[FindingResponse]) -> list[ReportTopIssueResponse]:
+    sorted_findings = sorted(
+        findings,
+        key=lambda finding: (
+            SEVERITY_ORDER.get(finding.severity.lower(), len(SEVERITY_ORDER)),
+            CONFIDENCE_ORDER.get(finding.confidence.lower(), len(CONFIDENCE_ORDER)),
+            finding.title.lower(),
+        ),
+    )
+
+    return [_to_report_issue(finding) for finding in sorted_findings[:5]]
+
+
+def _build_enriched_top_issues(findings: list[EnrichedFindingResponse]) -> list[EnrichedFindingResponse]:
+    sorted_findings = sorted(
+        findings,
+        key=lambda finding: (
+            SEVERITY_ORDER.get(finding.severity.lower(), len(SEVERITY_ORDER)),
+            CONFIDENCE_ORDER.get(finding.confidence.lower(), len(CONFIDENCE_ORDER)),
+            finding.title.lower(),
+        ),
+    )
+    return sorted_findings[:5]
+
+
+def _build_categories(findings: list[FindingResponse]) -> list[ReportCategoryResponse]:
+    grouped: dict[str, dict] = {}
+
+    for finding in findings:
+        slug, name = CATEGORY_MAP.get(finding.category, ("other", "Other"))
+        group = grouped.setdefault(
+            slug,
+            {
+                "name": name,
+                "findings": [],
+            },
+        )
+        group["findings"].append(finding)
+
+    categories: list[ReportCategoryResponse] = []
+    for slug, group in grouped.items():
+        group_findings = sorted(
+            group["findings"],
+            key=lambda finding: (
+                SEVERITY_ORDER.get(finding.severity.lower(), len(SEVERITY_ORDER)),
+                CONFIDENCE_ORDER.get(finding.confidence.lower(), len(CONFIDENCE_ORDER)),
+                finding.title.lower(),
+            ),
+        )
+
+        categories.append(
+            ReportCategoryResponse(
+                name=group["name"],
+                slug=slug,
+                count=len(group_findings),
+                highest_severity=_highest_severity(group_findings),
+                findings=[_to_report_issue(finding) for finding in group_findings],
+            )
+        )
+
+    categories.sort(
+        key=lambda category: (
+            SEVERITY_ORDER.get(category.highest_severity, len(SEVERITY_ORDER)),
+            category.name.lower(),
+        )
+    )
+    return categories
+
+
+def _build_enriched_categories(findings: list[EnrichedFindingResponse]) -> list[EnrichedReportCategoryResponse]:
+    grouped: dict[str, dict] = {}
+
+    for finding in findings:
+        slug, name = CATEGORY_MAP.get(finding.category, ("other", "Other"))
+        group = grouped.setdefault(
+            slug,
+            {
+                "name": name,
+                "findings": [],
+            },
+        )
+        group["findings"].append(finding)
+
+    categories: list[EnrichedReportCategoryResponse] = []
+    for slug, group in grouped.items():
+        group_findings = sorted(
+            group["findings"],
+            key=lambda finding: (
+                SEVERITY_ORDER.get(finding.severity.lower(), len(SEVERITY_ORDER)),
+                CONFIDENCE_ORDER.get(finding.confidence.lower(), len(CONFIDENCE_ORDER)),
+                finding.title.lower(),
+            ),
+        )
+
+        categories.append(
+            EnrichedReportCategoryResponse(
+                name=group["name"],
+                slug=slug,
+                count=len(group_findings),
+                highest_severity=_highest_severity(group_findings),
+                findings=group_findings,
+            )
+        )
+
+    categories.sort(
+        key=lambda category: (
+            SEVERITY_ORDER.get(category.highest_severity, len(SEVERITY_ORDER)),
+            category.name.lower(),
+        )
+    )
+    return categories
+
+
+def _highest_severity(findings: list[FindingResponse | EnrichedFindingResponse]) -> str:
+    if not findings:
+        return "info"
+
+    return min(
+        findings,
+        key=lambda finding: SEVERITY_ORDER.get(finding.severity.lower(), len(SEVERITY_ORDER)),
+    ).severity.lower()
+
+
+def _build_score(summary: ScanSummaryResponse) -> int:
+    score = 100
+    score -= summary.critical * 20
+    score -= summary.high * 12
+    score -= summary.medium * 6
+    score -= summary.low * 2
+    return max(score, 0)
+
+
+def _to_report_issue(finding: FindingResponse) -> ReportTopIssueResponse:
+    _, category_name = CATEGORY_MAP.get(finding.category, ("other", "Other"))
+
+    return ReportTopIssueResponse(
+        tool_name=finding.tool_name,
+        title=finding.title,
+        severity=finding.severity,
+        confidence=finding.confidence,
+        evidence=finding.evidence,
+        category=category_name,
+        details=finding.details,
+    )

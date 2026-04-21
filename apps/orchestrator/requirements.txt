@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+grpcio
+grpcio-tools
+pydantic
+psycopg
+httpx
+redis
+langgraph
