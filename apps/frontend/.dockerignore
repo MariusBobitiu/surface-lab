@@ -1,0 +1,11 @@
+.env
+.env.local
+.env.*.local
+.next
+coverage
+node_modules
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+Dockerfile*
+README.md

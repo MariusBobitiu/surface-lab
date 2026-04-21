@@ -2,6 +2,7 @@ import logging
 import os
 from pathlib import Path
 
+import psycopg
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
@@ -26,6 +27,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
 
 from config import settings
 from api.routes import router as scans_router
+from services.cache import _get_redis_client
 from middleware import (
     ApiKeyMiddleware,
     BodySizeLimitMiddleware,
@@ -75,6 +77,37 @@ def create_app() -> FastAPI:
     app = FastAPI(title="SurfaceLab Orchestrator")
     app.include_router(scans_router)
     _configure_openapi_api_key(app)
+
+    @app.get("/health")
+    @app.get("/healthz")
+    def healthcheck() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.get("/livez")
+    def liveness() -> dict[str, str]:
+        return {"status": "live"}
+
+    @app.get("/readyz")
+    def readiness() -> dict[str, object]:
+        checks: dict[str, str] = {"api": "ok"}
+
+        try:
+            if settings.DATABASE_URL:
+                with psycopg.connect(settings.DATABASE_URL) as connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute("SELECT 1")
+        except psycopg.Error:
+            return {"status": "error", "checks": {**checks, "database": "error"}}
+
+        checks["database"] = "ok"
+
+        if settings.REDIS_ENABLED and settings.REDIS_URL:
+            client = _get_redis_client()
+            if client is None:
+                return {"status": "error", "checks": {**checks, "redis": "error"}}
+            checks["redis"] = "ok"
+
+        return {"status": "ok", "checks": checks}
 
     app.add_middleware(
         BodySizeLimitMiddleware,

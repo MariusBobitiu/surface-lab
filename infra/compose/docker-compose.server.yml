@@ -1,0 +1,151 @@
+services:
+  frontend:
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:-mariusbobitiu}/surfacelab-frontend:${IMAGE_TAG:-latest}
+    depends_on:
+      orchestrator:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      ORCHESTRATOR_BASE_URL: http://orchestrator:8000
+      ORCHESTRATOR_API_KEY: ${ORCHESTRATOR_API_KEY}
+      ORCHESTRATOR_REQUEST_TIMEOUT_MS: ${ORCHESTRATOR_REQUEST_TIMEOUT_MS:-10000}
+    ports:
+      - "${FRONTEND_HOST_PORT:-8080}:3000"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "wget -qO- http://127.0.0.1:3000 >/dev/null || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  orchestrator:
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:-mariusbobitiu}/surfacelab-orchestrator:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      scanner:
+        condition: service_started
+    environment:
+      PORT: 8000
+      UVICORN_WORKERS: ${ORCHESTRATOR_WORKERS:-2}
+      DATABASE_URL: postgresql://surfacelab_orchestrator:${POSTGRES_ORCHESTRATOR_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      ORCHESTRATOR_API_KEY: ${ORCHESTRATOR_API_KEY}
+      ORCHESTRATOR_REQUIRE_API_KEY: ${ORCHESTRATOR_REQUIRE_API_KEY:-true}
+      ORCHESTRATOR_RATE_LIMIT_ENABLED: ${ORCHESTRATOR_RATE_LIMIT_ENABLED:-true}
+      ORCHESTRATOR_RATE_LIMIT_RPM: ${ORCHESTRATOR_RATE_LIMIT_RPM:-60}
+      ORCHESTRATOR_RATE_LIMIT_BURST: ${ORCHESTRATOR_RATE_LIMIT_BURST:-20}
+      ORCHESTRATOR_ALLOWED_ORIGINS: ${ORCHESTRATOR_ALLOWED_ORIGINS}
+      ORCHESTRATOR_TRUSTED_HOSTS: ${ORCHESTRATOR_TRUSTED_HOSTS}
+      ORCHESTRATOR_SECURITY_HEADERS_ENABLED: ${ORCHESTRATOR_SECURITY_HEADERS_ENABLED:-true}
+      ORCHESTRATOR_BODY_LIMIT_BYTES: ${ORCHESTRATOR_BODY_LIMIT_BYTES:-1048576}
+      SCANNER_GRPC_ADDRESS: scanner:50051
+      SCANNER_SERVICE_TOKEN: ${SCANNER_SERVICE_TOKEN}
+      SCANNER_GRPC_AUTH_MODE: ${SCANNER_GRPC_AUTH_MODE:-bearer}
+      SCANNER_GRPC_TLS_ENABLED: ${SCANNER_GRPC_TLS_ENABLED:-false}
+      SCANNER_GRPC_TLS_CA_FILE: ${SCANNER_GRPC_TLS_CA_FILE:-/certificates/scanner-ca.crt}
+      SCANNER_GRPC_TLS_SERVER_NAME: ${SCANNER_GRPC_TLS_SERVER_NAME:-}
+      NVD_API_KEY: ${NVD_API_KEY:-}
+      NVD_ENABLED: ${NVD_ENABLED:-false}
+      NVD_MIN_INTERVAL_SECONDS: ${NVD_MIN_INTERVAL_SECONDS:-6}
+      NVD_TIMEOUT_SECONDS: ${NVD_TIMEOUT_SECONDS:-10}
+      REDIS_URL: redis://redis:6379/0
+      REDIS_ENABLED: ${REDIS_ENABLED:-true}
+      NVD_CACHE_TTL_SECONDS: ${NVD_CACHE_TTL_SECONDS:-86400}
+      OLLAMA_ENABLED: ${OLLAMA_ENABLED:-false}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3}
+      OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-30}
+    expose:
+      - "8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)\" || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  scanner:
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:-mariusbobitiu}/surfacelab-scanner:${IMAGE_TAG:-latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${SCANNER_APP_ENV:-production}
+      GRPC_PORT: 50051
+      DATABASE_URL: postgresql://surfacelab_scanner:${POSTGRES_SCANNER_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      SCANNER_SERVICE_TOKEN: ${SCANNER_SERVICE_TOKEN}
+      SCANNER_GRPC_TLS_ENABLED: ${SCANNER_GRPC_TLS_ENABLED:-false}
+      SCANNER_GRPC_TLS_CERT_FILE: ${SCANNER_GRPC_TLS_CERT_FILE:-/certificates/scanner.crt}
+      SCANNER_GRPC_TLS_KEY_FILE: ${SCANNER_GRPC_TLS_KEY_FILE:-/certificates/scanner.key}
+      SCANNER_GRPC_TLS_CA_FILE: ${SCANNER_GRPC_TLS_CA_FILE:-/certificates/scanner-ca.crt}
+      SCANNER_RATE_LIMIT_RPS: ${SCANNER_RATE_LIMIT_RPS:-5}
+      SCANNER_RATE_LIMIT_BURST: ${SCANNER_RATE_LIMIT_BURST:-10}
+      SCANNER_MAX_CONCURRENT_REQUESTS: ${SCANNER_MAX_CONCURRENT_REQUESTS:-4}
+      SCANNER_REQUEST_TIMEOUT_SECONDS: ${SCANNER_REQUEST_TIMEOUT_SECONDS:-30}
+    expose:
+      - "50051"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "nc -z 127.0.0.1 50051 || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+      POSTGRES_MIGRATE_PASSWORD: ${POSTGRES_MIGRATE_PASSWORD}
+      POSTGRES_SCANNER_PASSWORD: ${POSTGRES_SCANNER_PASSWORD}
+      POSTGRES_ORCHESTRATOR_PASSWORD: ${POSTGRES_ORCHESTRATOR_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+      - ./postgres-bootstrap/roles.sql:/surfacelab-init/roles.sql:ro
+      - ./postgres-bootstrap/000001_init.up.sql:/surfacelab-init/000001_init.up.sql:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "pg_isready -U ${POSTGRES_SUPERUSER:-postgres} -d ${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
