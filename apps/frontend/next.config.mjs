@@ -74,6 +74,14 @@ const nextConfig = {
   },
   allowedDevOrigins: [],
   poweredByHeader: false,
+  experimental: {
+    serverActions: {
+      allowedOrigins: [
+        "http://localhost:8000",
+        "https://surfacelab.mariusbobitiu.dev",
+      ]
+    }
+  },
   async headers() {
     return [
       {
