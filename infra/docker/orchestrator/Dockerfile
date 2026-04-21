@@ -14,7 +14,11 @@ RUN pip install --upgrade pip setuptools wheel \
     && pip install --no-cache-dir -r requirements.txt
 
 FROM base AS runner
-RUN groupadd --system app && useradd --system --gid app app
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends libpq5 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system app \
+    && useradd --system --gid app app
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 COPY . .

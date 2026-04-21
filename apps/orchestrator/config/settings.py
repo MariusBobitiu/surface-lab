@@ -68,7 +68,7 @@ def _get_scanner_tls_settings() -> tuple[bool, str, str]:
     if enabled and not ca_file:
         raise RuntimeError("SCANNER_GRPC_TLS_CA_FILE is required when SCANNER_GRPC_TLS_ENABLED=true")
 
-    if ca_file:
+    if enabled and ca_file:
         ca_path = Path(ca_file)
         if not ca_path.exists():
             raise RuntimeError(f"SCANNER_GRPC_TLS_CA_FILE does not exist: {ca_file}")
