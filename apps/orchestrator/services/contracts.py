@@ -15,8 +15,8 @@ class AdvancedScanContract:
 ADVANCED_SCAN_CONTRACTS: dict[str, AdvancedScanContract] = {
     "wordpress.v1.run_stack": AdvancedScanContract(
         name="wordpress.v1.run_stack",
-        description="Run WordPress-oriented follow-up checks when baseline findings strongly suggest a WordPress stack.",
-        service="wordpress-specialist",
+        description="Run the wp-stack specialist service for deterministic WordPress surface and exposure checks.",
+        service="wp-stack",
         tags=("cms", "wordpress", "php"),
         trigger_signals=("wordpress", "wp-content", "wp-json", "generator:wordpress"),
         timeout_seconds=20.0,

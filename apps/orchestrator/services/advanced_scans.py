@@ -2,6 +2,9 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
+import grpc
+
+from grpc_clients.wp_stack_client import is_wp_stack_enabled, run_wordpress_stack
 from schemas.planner import AdvancedContractExecutionResult, AdvancedContractFinding, PlannerSelection
 from schemas.scan import FindingResponse
 from services.contracts import AdvancedScanContract, get_advanced_scan_contract
@@ -142,6 +145,56 @@ def _run_wordpress_contract(
     matched_signals = _match_trigger_signals(contract, findings)
     target = scan.get("target") if scan else None
 
+    if target and is_wp_stack_enabled():
+        try:
+            response = run_wordpress_stack(
+                target,
+                metadata={
+                    "matched_signals": matched_signals,
+                    "baseline_finding_count": len(findings),
+                },
+            )
+        except grpc.RpcError as exc:
+            logger.warning("wp-stack gRPC call failed for %s: %s", target, exc)
+            return AdvancedContractExecutionResult(
+                contract=contract.name,
+                status="failed",
+                metadata={
+                    "service_status": "grpc_error",
+                    "matched_signals": matched_signals,
+                    "target": target,
+                    "grpc_status": exc.code().name if exc.code() else None,
+                },
+                error=exc.details() or str(exc),
+            )
+        except RuntimeError as exc:
+            logger.warning("wp-stack execution unavailable for %s: %s", target, exc)
+        else:
+            return AdvancedContractExecutionResult(
+                contract=contract.name,
+                status=_normalize_contract_status(response.get("status")),
+                findings=[
+                    AdvancedContractFinding(
+                        tool_name=response.get("tool") or contract.name,
+                        type=item.get("type", "informational"),
+                        category=item.get("category", "wordpress_fingerprint"),
+                        title=item.get("title", "WordPress stack finding"),
+                        severity=item.get("severity", "info"),
+                        confidence=item.get("confidence", "medium"),
+                        evidence=item.get("evidence", ""),
+                        details=item.get("details") or {},
+                    )
+                    for item in response.get("findings", [])
+                ],
+                metadata={
+                    "service_status": "grpc",
+                    "matched_signals": matched_signals,
+                    "target": target,
+                    **(response.get("metadata") or {}),
+                },
+                error=response.get("error") or None,
+            )
+
     stub_findings = [
         AdvancedContractFinding(
             tool_name="advanced_wordpress_stub",
@@ -164,7 +217,7 @@ def _run_wordpress_contract(
         status="completed",
         findings=stub_findings,
         metadata={
-            "service_status": "stubbed",
+            "service_status": "stub_fallback",
             "matched_signals": matched_signals,
             "target": target,
         },
@@ -222,3 +275,10 @@ def _match_trigger_signals(contract: AdvancedScanContract, findings: list[Findin
     haystack = " ".join(haystack_parts).lower()
 
     return [signal for signal in contract.trigger_signals if signal.lower() in haystack]
+
+
+def _normalize_contract_status(status: str | None) -> str:
+    if status in {"completed", "failed", "timed_out", "skipped"}:
+        return status
+
+    return "completed"
