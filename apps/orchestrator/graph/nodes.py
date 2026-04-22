@@ -3,8 +3,11 @@ from typing import Literal
 
 from db.postgres import get_db_connection
 from graph.state import EnrichedReportGraphState
+from services.advanced_scans import execute_advanced_scan_plan
+from services.contracts import list_advanced_scan_contracts
 from services.enrichment import enrich_findings
 from services.llm import summarize_enriched_report
+from services.planner import plan_advanced_scans
 from services.reports import build_enriched_report, build_scan_report
 from services.scans import fetch_findings, fetch_scan, fetch_scan_steps
 
@@ -28,6 +31,27 @@ def load_scan_node(state: EnrichedReportGraphState) -> dict:
         "steps": steps,
         "findings": findings,
     }
+
+
+def plan_advanced_scans_node(state: EnrichedReportGraphState) -> dict:
+    logger.info("LangGraph node: plan_advanced_scans_node")
+
+    planner_result = plan_advanced_scans(
+        findings=state["findings"],
+        contracts=list_advanced_scan_contracts(),
+    )
+    return {"planner_result": planner_result}
+
+
+def execute_advanced_scans_node(state: EnrichedReportGraphState) -> dict:
+    logger.info("LangGraph node: execute_advanced_scans_node")
+
+    advanced_results = execute_advanced_scan_plan(
+        planner_result=state["planner_result"],
+        findings=state["findings"],
+        scan=state["scan"],
+    )
+    return {"advanced_results": advanced_results}
 
 
 def build_report_node(state: EnrichedReportGraphState) -> dict:

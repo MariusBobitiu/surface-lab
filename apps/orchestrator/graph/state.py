@@ -1,6 +1,7 @@
 from typing import Any
 from typing_extensions import NotRequired, TypedDict
 
+from schemas.planner import AdvancedContractExecutionResult, PlannerSelection
 from schemas.scan import EnrichedFindingResponse, EnrichedReportResponse, FindingResponse, ScanReportResponse, ScanStepResponse
 
 
@@ -11,6 +12,8 @@ class EnrichedReportGraphState(TypedDict):
     findings: NotRequired[list[FindingResponse]]
     report: NotRequired[ScanReportResponse]
     enriched_findings: NotRequired[list[EnrichedFindingResponse]]
+    planner_result: NotRequired[PlannerSelection]
+    advanced_results: NotRequired[list[AdvancedContractExecutionResult]]
     final_report: NotRequired[EnrichedReportResponse]
     nvd_enabled: bool
     ollama_enabled: bool
