@@ -5,7 +5,7 @@ import httpx
 
 from config.settings import OLLAMA_BASE_URL, OLLAMA_ENABLED, OLLAMA_MODEL, OLLAMA_TIMEOUT_SECONDS
 from schemas.planner import AdvancedContractExecutionResult, PlannerSelection
-from schemas.scan import FindingResponse
+from services.baseline_context import BaselineContext
 from services.contracts import AdvancedScanContract
 from services.llm import OLLAMA_GENERATE_PATH, _normalize_ollama_base_url
 
@@ -14,17 +14,17 @@ logger = logging.getLogger(__name__)
 
 
 def plan_advanced_scans(
-    findings: list[FindingResponse],
+    baseline_context: BaselineContext,
     contracts: list[AdvancedScanContract],
     previous_planner_result: PlannerSelection | None = None,
     failed_contracts: list[str] | None = None,
     advanced_results: list[AdvancedContractExecutionResult] | None = None,
 ) -> PlannerSelection:
-    fallback = _build_fallback_plan(findings)
+    fallback = _build_fallback_plan(baseline_context)
     if not OLLAMA_ENABLED:
         return fallback
 
-    prompt = _build_prompt(findings, contracts, previous_planner_result, failed_contracts or [], advanced_results or [])
+    prompt = _build_prompt(baseline_context, contracts, previous_planner_result, failed_contracts or [], advanced_results or [])
     base_url = _normalize_ollama_base_url(OLLAMA_BASE_URL)
 
     try:
@@ -54,6 +54,8 @@ def plan_advanced_scans(
         logger.warning("Advanced scan planner returned invalid JSON: %s", exc)
         return fallback
 
+    parsed = _normalize_raw_plan_payload(parsed)
+
     try:
         plan = PlannerSelection.model_validate(parsed)
     except Exception as exc:
@@ -67,7 +69,7 @@ def plan_advanced_scans(
 
 
 def _build_prompt(
-    findings: list[FindingResponse],
+    baseline_context: BaselineContext,
     contracts: list[AdvancedScanContract],
     previous_planner_result: PlannerSelection | None,
     failed_contracts: list[str],
@@ -78,23 +80,14 @@ def _build_prompt(
             "name": contract.name,
             "description": contract.description,
             "tags": list(contract.tags),
-            "trigger_signals": list(contract.trigger_signals),
+            "signal_triggers": list(contract.signal_triggers),
         }
         for contract in contracts
     ]
 
-    compact_findings = [
-        {
-            "title": finding.title,
-            "category": finding.category,
-            "severity": finding.severity,
-            "confidence": finding.confidence,
-            "tool_name": finding.tool_name,
-            "evidence": finding.evidence[:180],
-            "details": _compact_details(finding.details),
-        }
-        for finding in findings[:10]
-    ]
+    compact_findings = baseline_context.planner_finding_summary()
+    compact_signals = baseline_context.planner_signal_summary()
+    compact_evidence = baseline_context.planner_evidence_summary()
 
     replan_context = ""
     if previous_planner_result is not None or failed_contracts or advanced_results:
@@ -129,11 +122,27 @@ Return JSON only with exactly these fields:
 - reasoning_summary
 - confidence
 
+`confidence` must be one of exactly: "low", "medium", "high".
+Do not return numbers like 0.9.
+
 Available contracts:
 {json.dumps(available_contracts, indent=2)}
 
+Baseline target context:
+{json.dumps({
+    "target_input": baseline_context.target_input,
+    "canonical_url": baseline_context.canonical_url,
+    "redirected": baseline_context.redirected,
+}, indent=2)}
+
+Baseline signals:
+{json.dumps(compact_signals, indent=2)}
+
 Baseline findings:
 {json.dumps(compact_findings, indent=2)}
+
+Selected baseline evidence:
+{json.dumps(compact_evidence, indent=2)}
 {replan_context}
 """
 
@@ -149,6 +158,38 @@ def _compact_details(details: dict) -> dict:
         compact[key] = str(value)[:120]
 
     return compact
+
+
+def _normalize_raw_plan_payload(parsed: object) -> dict:
+    if not isinstance(parsed, dict):
+        return {}
+
+    normalized = dict(parsed)
+    normalized["confidence"] = _normalize_confidence_value(parsed.get("confidence"))
+    return normalized
+
+
+def _normalize_confidence_value(value: object) -> str:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"low", "medium", "high"}:
+            return normalized
+
+        if normalized in {"0", "0.0", "1", "1.0"}:
+            try:
+                return _normalize_confidence_value(float(normalized))
+            except ValueError:
+                return "low"
+
+    if isinstance(value, (int, float)):
+        numeric = float(value)
+        if numeric >= 0.8:
+            return "high"
+        if numeric >= 0.45:
+            return "medium"
+        return "low"
+
+    return "low"
 
 
 def _is_valid_plan(plan: PlannerSelection, contracts: list[AdvancedScanContract]) -> bool:
@@ -188,18 +229,38 @@ def _normalize_plan(plan: PlannerSelection) -> PlannerSelection:
     )
 
 
-def _build_fallback_plan(findings: list[FindingResponse]) -> PlannerSelection:
-    select_generic_http = bool(findings)
-    selected_contracts = ["generic_http.v1.run_stack"] if select_generic_http else []
+def _build_fallback_plan(baseline_context: BaselineContext) -> PlannerSelection:
+    selected_contracts: list[str] = []
+    has_routing_signal = any(
+        baseline_context.signal_is_true(key)
+        for key in (
+            "framework.wordpress",
+            "framework.nextjs",
+            "assets.next_static",
+            "assets.js_bundle",
+            "surface.api",
+            "surface.login",
+            "surface.admin",
+        )
+    )
+
+    if baseline_context.signal_is_true("framework.wordpress"):
+        selected_contracts.append("wordpress.v1.run_stack")
+    if baseline_context.signal_is_true("framework.nextjs") or baseline_context.signal_is_true("assets.next_static"):
+        selected_contracts.append("nextjs.v1.run_stack")
+    if has_routing_signal:
+        selected_contracts.append("generic_http.v1.run_stack")
+
     skipped_contracts = [
         "wordpress.v1.run_stack",
         "nextjs.v1.run_stack",
+        "generic_http.v1.run_stack",
     ]
-    if not select_generic_http:
-        skipped_contracts.append("generic_http.v1.run_stack")
+    selected_deduped = _dedupe_preserving_order(selected_contracts)
+    skipped_contracts = [name for name in skipped_contracts if name not in set(selected_deduped)]
 
     return PlannerSelection(
-        selected_contracts=selected_contracts,
+        selected_contracts=selected_deduped,
         skipped_contracts=skipped_contracts,
         reasoning_summary="Using deterministic fallback planner output because the LLM plan was unavailable or invalid.",
         confidence="low",

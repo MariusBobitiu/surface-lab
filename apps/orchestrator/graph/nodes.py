@@ -13,13 +13,14 @@ from services.advanced_scans import (
     merge_advanced_findings,
     replace_advanced_results,
 )
+from services.baseline_context import build_baseline_context
 from services.contracts import get_advanced_scan_contract, list_advanced_scan_contracts
 from services.enrichment import enrich_findings
 from services.event_bus import publish_scan_event
 from services.llm import summarize_enriched_report
 from services.planner import plan_advanced_scans
 from services.reports import build_enriched_report, build_scan_report
-from services.scans import fetch_findings, fetch_scan, fetch_scan_steps
+from services.scans import fetch_evidence, fetch_findings, fetch_scan, fetch_scan_steps, fetch_signals
 
 
 logger = logging.getLogger(__name__)
@@ -36,13 +37,24 @@ def run_baseline_node(state: EnrichedReportGraphState) -> dict:
 
         steps = fetch_scan_steps(connection, state["scan_id"])
         findings = fetch_findings(connection, state["scan_id"])
+        signals = fetch_signals(connection, state["scan_id"])
+        evidence = fetch_evidence(connection, state["scan_id"])
+
+    baseline_context = build_baseline_context(scan, steps, findings, signals, evidence)
+    scan_payload = {
+        **scan,
+        "canonical_target": baseline_context.canonical_url,
+        "redirected": baseline_context.redirected,
+    }
 
     payload = {
-        "scan": scan,
-        "target": scan["target"],
-        "baseline_result": scan,
+        "scan": scan_payload,
+        "target": baseline_context.canonical_url,
+        "baseline_result": scan_payload,
+        "baseline_context": baseline_context,
         "steps": steps,
         "baseline_findings": findings,
+        "baseline_signals": signals,
         "findings": findings,
         "merged_findings": findings,
         "advanced_results": [],
@@ -61,6 +73,7 @@ def run_baseline_node(state: EnrichedReportGraphState) -> dict:
         {
             "status": scan["status"],
             "finding_count": len(findings),
+            "canonical_target": baseline_context.canonical_url,
         },
     )
     return payload
@@ -69,7 +82,7 @@ def run_baseline_node(state: EnrichedReportGraphState) -> dict:
 def analyze_baseline_node(state: EnrichedReportGraphState) -> dict:
     logger.info("LangGraph node: analyze_baseline_node")
 
-    baseline_analysis = analyze_baseline_findings(state["baseline_findings"])
+    baseline_analysis = analyze_baseline_findings(state["baseline_context"])
     baseline_result = {
         **state["baseline_result"],
         "analysis": baseline_analysis,
@@ -90,10 +103,7 @@ def plan_contracts_node(state: EnrichedReportGraphState) -> dict:
     logger.info("LangGraph node: plan_contracts_node")
     _publish_event(state, "planner.started", "Planner execution started.")
 
-    planner_result = plan_advanced_scans(
-        findings=state["baseline_findings"],
-        contracts=list_advanced_scan_contracts(),
-    )
+    planner_result = plan_advanced_scans(baseline_context=state["baseline_context"], contracts=list_advanced_scan_contracts())
     notes = list(state.get("execution_notes", []))
     notes.append(f"Planner selected {planner_result.selected_contracts or []} with confidence={planner_result.confidence}.")
 
@@ -150,7 +160,7 @@ def execute_selected_contracts_node(state: EnrichedReportGraphState) -> dict:
     )
     advanced_results = execute_advanced_scan_plan(
         planner_result=execution_plan,
-        findings=state["baseline_findings"],
+        baseline_context=state["baseline_context"],
         scan=state["scan"],
         scan_id=state["scan_id"],
     )
@@ -203,7 +213,7 @@ def execute_generic_only_node(state: EnrichedReportGraphState) -> dict:
     )
     advanced_results = execute_advanced_scan_plan(
         planner_result=execution_plan,
-        findings=state["baseline_findings"],
+        baseline_context=state["baseline_context"],
         scan=state["scan"],
         scan_id=state["scan_id"],
     )
@@ -279,7 +289,7 @@ def retry_failed_contracts_node(state: EnrichedReportGraphState) -> dict:
     )
     retry_results = execute_advanced_scan_plan(
         planner_result=retry_plan,
-        findings=state["baseline_findings"],
+        baseline_context=state["baseline_context"],
         scan=state["scan"],
         scan_id=state["scan_id"],
     )
@@ -318,7 +328,7 @@ def replan_contracts_node(state: EnrichedReportGraphState) -> dict:
     )
 
     planner_result = plan_advanced_scans(
-        findings=state["baseline_findings"],
+        baseline_context=state["baseline_context"],
         contracts=list_advanced_scan_contracts(),
         previous_planner_result=state["planner_result"],
         failed_contracts=state.get("failed_contracts", []),

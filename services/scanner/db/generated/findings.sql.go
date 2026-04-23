@@ -13,24 +13,26 @@ import (
 
 const createFinding = `-- name: CreateFinding :one
 INSERT INTO findings (
-  id, scan_id, tool_name, type, category, title, severity, confidence, evidence, details
+  id, scan_id, tool_name, type, category, title, summary, severity, confidence, evidence, evidence_refs, details
 ) VALUES (
-  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
 )
-RETURNING id, scan_id, tool_name, type, category, title, severity, confidence, evidence, details, created_at
+RETURNING id, scan_id, tool_name, type, category, title, severity, confidence, evidence, details, created_at, summary, evidence_refs
 `
 
 type CreateFindingParams struct {
-	ID         pgtype.UUID `json:"id"`
-	ScanID     pgtype.UUID `json:"scan_id"`
-	ToolName   string      `json:"tool_name"`
-	Type       string      `json:"type"`
-	Category   string      `json:"category"`
-	Title      string      `json:"title"`
-	Severity   string      `json:"severity"`
-	Confidence string      `json:"confidence"`
-	Evidence   string      `json:"evidence"`
-	Details    []byte      `json:"details"`
+	ID           pgtype.UUID `json:"id"`
+	ScanID       pgtype.UUID `json:"scan_id"`
+	ToolName     string      `json:"tool_name"`
+	Type         string      `json:"type"`
+	Category     string      `json:"category"`
+	Title        string      `json:"title"`
+	Summary      string      `json:"summary"`
+	Severity     string      `json:"severity"`
+	Confidence   string      `json:"confidence"`
+	Evidence     string      `json:"evidence"`
+	EvidenceRefs []byte      `json:"evidence_refs"`
+	Details      []byte      `json:"details"`
 }
 
 func (q *Queries) CreateFinding(ctx context.Context, arg CreateFindingParams) (Finding, error) {
@@ -41,9 +43,11 @@ func (q *Queries) CreateFinding(ctx context.Context, arg CreateFindingParams) (F
 		arg.Type,
 		arg.Category,
 		arg.Title,
+		arg.Summary,
 		arg.Severity,
 		arg.Confidence,
 		arg.Evidence,
+		arg.EvidenceRefs,
 		arg.Details,
 	)
 	var i Finding
@@ -59,12 +63,14 @@ func (q *Queries) CreateFinding(ctx context.Context, arg CreateFindingParams) (F
 		&i.Evidence,
 		&i.Details,
 		&i.CreatedAt,
+		&i.Summary,
+		&i.EvidenceRefs,
 	)
 	return i, err
 }
 
 const listFindingsByScanID = `-- name: ListFindingsByScanID :many
-SELECT id, scan_id, tool_name, type, category, title, severity, confidence, evidence, details, created_at FROM findings
+SELECT id, scan_id, tool_name, type, category, title, severity, confidence, evidence, details, created_at, summary, evidence_refs FROM findings
 WHERE scan_id = $1
 ORDER BY created_at ASC
 `
@@ -90,6 +96,8 @@ func (q *Queries) ListFindingsByScanID(ctx context.Context, scanID pgtype.UUID) 
 			&i.Evidence,
 			&i.Details,
 			&i.CreatedAt,
+			&i.Summary,
+			&i.EvidenceRefs,
 		); err != nil {
 			return nil, err
 		}

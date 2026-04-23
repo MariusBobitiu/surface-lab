@@ -34,17 +34,48 @@ func newScanStepParams(scanID pgtype.UUID, result models.ToolResult) generateddb
 }
 
 func newFindingParams(scanID pgtype.UUID, toolName string, finding models.Finding) generateddb.CreateFindingParams {
+	findingID := newUUID()
+	if finding.ID != "" {
+		findingID = parseOrNewUUID(finding.ID)
+	}
+
 	return generateddb.CreateFindingParams{
-		ID:         newUUID(),
-		ScanID:     scanID,
-		ToolName:   toolName,
-		Type:       finding.Type,
-		Category:   finding.Category,
-		Title:      finding.Title,
-		Severity:   finding.Severity,
-		Confidence: finding.Confidence,
-		Evidence:   finding.Evidence,
-		Details:    jsonBytes(finding.Details),
+		ID:           findingID,
+		ScanID:       scanID,
+		ToolName:     toolName,
+		Type:         finding.Type,
+		Category:     finding.Category,
+		Title:        finding.Title,
+		Summary:      coalesceFindingSummary(finding),
+		Severity:     finding.Severity,
+		Confidence:   finding.Confidence,
+		Evidence:     coalesceFindingEvidence(finding),
+		EvidenceRefs: jsonBytes(finding.EvidenceRefs),
+		Details:      jsonBytes(finding.Details),
+	}
+}
+
+func newSignalParams(scanID pgtype.UUID, toolName string, signal models.Signal) generateddb.CreateSignalParams {
+	return generateddb.CreateSignalParams{
+		ID:           newUUID(),
+		ScanID:       scanID,
+		ToolName:     toolName,
+		Key:          signal.Key,
+		Value:        jsonBytes(signal.Value),
+		Confidence:   signal.Confidence,
+		Source:       signal.Source,
+		EvidenceRefs: jsonBytes(signal.EvidenceRefs),
+	}
+}
+
+func newEvidenceParams(scanID pgtype.UUID, toolName string, evidence models.Evidence) generateddb.CreateEvidenceParams {
+	return generateddb.CreateEvidenceParams{
+		ID:       evidence.ID,
+		ScanID:   scanID,
+		ToolName: toolName,
+		Kind:     evidence.Kind,
+		Target:   textValue(evidence.Target),
+		Data:     jsonBytes(evidence.Data),
 	}
 }
 
@@ -71,6 +102,8 @@ func stepMetadata(result models.ToolResult) map[string]interface{} {
 		"target":   result.Target,
 		"metadata": result.Metadata,
 		"error":    result.Error,
+		"signals":  result.Signals,
+		"evidence": result.Evidence,
 	}
 }
 
@@ -119,4 +152,44 @@ func uuidString(value pgtype.UUID) string {
 		raw[8], raw[9],
 		raw[10], raw[11], raw[12], raw[13], raw[14], raw[15],
 	)
+}
+
+func parseOrNewUUID(value string) pgtype.UUID {
+	var raw [16]byte
+	if _, err := fmt.Sscanf(
+		value,
+		"%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+		&raw[0], &raw[1], &raw[2], &raw[3],
+		&raw[4], &raw[5],
+		&raw[6], &raw[7],
+		&raw[8], &raw[9],
+		&raw[10], &raw[11], &raw[12], &raw[13], &raw[14], &raw[15],
+	); err != nil {
+		return newUUID()
+	}
+
+	return pgtype.UUID{
+		Bytes: raw,
+		Valid: true,
+	}
+}
+
+func coalesceFindingSummary(finding models.Finding) string {
+	if finding.Summary != "" {
+		return finding.Summary
+	}
+
+	return finding.Title
+}
+
+func coalesceFindingEvidence(finding models.Finding) string {
+	if finding.Evidence != "" {
+		return finding.Evidence
+	}
+
+	if finding.Summary != "" {
+		return finding.Summary
+	}
+
+	return finding.Title
 }

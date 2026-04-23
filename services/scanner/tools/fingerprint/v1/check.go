@@ -5,26 +5,22 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/MariusBobitiu/surface-lab/scanner-service/models"
+	"github.com/MariusBobitiu/surface-lab/scanner-service/tools/common"
 	"github.com/MariusBobitiu/surface-lab/scanner-service/utils"
 )
 
 const fingerprintTimeout = 10 * time.Second
 
+var versionPattern = regexp.MustCompile(`(?i)\b\d+(?:\.\d+){1,3}\b`)
+
 func Check(ctx context.Context, target string) models.ToolResult {
 	startedAt := time.Now()
-	result := models.ToolResult{
-		Tool:     "fingerprint/v1",
-		Target:   target,
-		Status:   models.StatusFailed,
-		Findings: []models.Finding{},
-		Metadata: map[string]interface{}{
-			"tool_version": "v1",
-		},
-	}
+	result := common.NewToolResult("fingerprint/v1", target, "v1")
 
 	targetURL := utils.NormalizeTarget(target, "https")
 	result.Target = targetURL
@@ -49,113 +45,156 @@ func Check(ctx context.Context, target string) models.ToolResult {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 	html := string(body)
 
-	result.Metadata["status_code"] = resp.StatusCode
-	result.Metadata["final_url"] = resp.Request.URL.String()
-
-	signals := []interface{}{}
-	detectedServers := []interface{}{}
-	detectedFrameworks := []interface{}{}
-	detectedEdge := []interface{}{}
-	detectedGenerators := []interface{}{}
-
-	serverHeader := strings.TrimSpace(resp.Header.Get("Server"))
-	if serverHeader != "" {
-		detectedServers = append(detectedServers, serverHeader)
-		signals = append(signals, "server:"+serverHeader)
-		result.Findings = append(result.Findings, technologyFinding(
-			"fingerprint_server",
-			"Detected server technology",
-			serverHeader,
-			models.ConfidenceHigh,
-			fmt.Sprintf("Server header returned %q", serverHeader),
-		))
-	}
-
-	poweredBy := strings.TrimSpace(resp.Header.Get("X-Powered-By"))
-	if poweredBy != "" {
-		detectedFrameworks = appendUnique(detectedFrameworks, poweredBy)
-		signals = append(signals, "x-powered-by:"+poweredBy)
-		result.Findings = append(result.Findings, technologyFinding(
-			"fingerprint_framework",
-			"Detected framework",
-			poweredBy,
-			models.ConfidenceHigh,
-			fmt.Sprintf("X-Powered-By header returned %q", poweredBy),
-		))
-	}
-
-	if cfRay := strings.TrimSpace(resp.Header.Get("CF-Ray")); cfRay != "" {
-		detectedEdge = appendUnique(detectedEdge, "Cloudflare")
-		signals = append(signals, "cf-ray")
-		result.Findings = append(result.Findings, technologyFinding(
-			"fingerprint_edge",
-			"Detected CDN or edge provider",
-			"Cloudflare",
-			models.ConfidenceHigh,
-			"CF-Ray header is present",
-		))
-	}
+	headersEvidenceID := common.AddEvidence(&result, "response_headers", resp.Request.URL.String(), map[string]interface{}{
+		"status_code": resp.StatusCode,
+		"headers": common.HeaderSnapshot(
+			resp.Header,
+			"Server",
+			"X-Powered-By",
+			"CF-Ray",
+			"X-Vercel-Id",
+		),
+	})
 
 	generator := detectGenerator(html)
 	if generator != "" {
-		detectedGenerators = appendUnique(detectedGenerators, generator)
-		signals = append(signals, "meta-generator:"+generator)
-		result.Findings = append(result.Findings, technologyFinding(
-			"fingerprint_generator",
-			"Detected generator or CMS",
-			generator,
+		generatorEvidenceID := common.AddEvidence(&result, "meta_generator", resp.Request.URL.String(), map[string]interface{}{
+			"generator": generator,
+		})
+		result.Findings = append(result.Findings, disclosureFinding(
+			"generator-disclosure",
+			"information_disclosure",
+			"Generator disclosure detected",
+			fmt.Sprintf("The application discloses %q via a generator marker.", generator),
+			models.SeverityInfo,
 			models.ConfidenceHigh,
-			fmt.Sprintf("meta generator tag indicates %q", generator),
+			[]string{generatorEvidenceID},
+			map[string]interface{}{"generator": generator},
 		))
 	}
 
-	if containsAnyFold(html, "/_next/", "__next") {
-		detectedFrameworks = appendUnique(detectedFrameworks, "Next.js")
-		signals = append(signals, "html:_next")
-		result.Findings = appendIfMissing(result.Findings, technologyFinding(
-			"fingerprint_framework",
-			"Detected framework",
-			"Next.js",
-			models.ConfidenceMedium,
-			"HTML contains Next.js asset or container hints",
-		))
-	}
+	scriptURLs := extractScriptURLs(html)
+	htmlMarkers := detectHTMLMarkers(html)
+	htmlEvidenceID := common.AddEvidence(&result, "html_markers", resp.Request.URL.String(), map[string]interface{}{
+		"body_sha1":    common.BodySHA1(body),
+		"body_snippet": common.BodySnippet(body, 240),
+		"script_urls":  scriptURLs,
+		"markers":      htmlMarkers,
+	})
 
-	if containsAnyFold(html, "/wp-content/", "/wp-includes/") {
-		detectedGenerators = appendUnique(detectedGenerators, "WordPress")
-		signals = append(signals, "html:wordpress")
-		result.Findings = appendIfMissing(result.Findings, technologyFinding(
-			"fingerprint_generator",
-			"Detected generator or CMS",
-			"WordPress",
+	serverHeader := strings.TrimSpace(resp.Header.Get("Server"))
+	common.AddSignal(&result, models.SignalHeaderServerPresent, serverHeader != "", models.ConfidenceHigh, "fingerprint.headers", headersEvidenceID)
+	cloudflareDetected := false
+	vercelDetected := false
+	if serverHeader != "" {
+		if strings.Contains(strings.ToLower(serverHeader), "cloudflare") {
+			cloudflareDetected = true
+		}
+		if strings.Contains(strings.ToLower(serverHeader), "vercel") {
+			vercelDetected = true
+		}
+		result.Findings = append(result.Findings, disclosureFinding(
+			"exposed-tech-header",
+			"information_disclosure",
+			"Server header discloses stack details",
+			fmt.Sprintf("The response exposes the server header value %q.", serverHeader),
+			models.SeverityInfo,
 			models.ConfidenceHigh,
-			"HTML contains WordPress asset paths",
+			[]string{headersEvidenceID},
+			map[string]interface{}{"header": "Server", "value": serverHeader},
 		))
+		if containsVersion(serverHeader) {
+			result.Findings = append(result.Findings, disclosureFinding(
+				"version-disclosure",
+				"information_disclosure",
+				"Version disclosure detected in Server header",
+				fmt.Sprintf("The server header appears to expose a version string: %q.", serverHeader),
+				models.SeverityLow,
+				models.ConfidenceMedium,
+				[]string{headersEvidenceID},
+				map[string]interface{}{"header": "Server", "value": serverHeader},
+			))
+		}
 	}
 
-	result.Metadata["detected_servers"] = detectedServers
-	result.Metadata["detected_frameworks"] = detectedFrameworks
-	result.Metadata["detected_edge"] = detectedEdge
-	result.Metadata["detected_generators"] = detectedGenerators
-	result.Metadata["signals"] = signals
+	poweredBy := strings.TrimSpace(resp.Header.Get("X-Powered-By"))
+	common.AddSignal(&result, models.SignalHeaderXPoweredByPresent, poweredBy != "", models.ConfidenceHigh, "fingerprint.headers", headersEvidenceID)
+	if poweredBy != "" {
+		result.Findings = append(result.Findings, disclosureFinding(
+			"exposed-tech-header",
+			"information_disclosure",
+			"X-Powered-By header discloses stack details",
+			fmt.Sprintf("The response exposes the X-Powered-By value %q.", poweredBy),
+			models.SeverityInfo,
+			models.ConfidenceHigh,
+			[]string{headersEvidenceID},
+			map[string]interface{}{"header": "X-Powered-By", "value": poweredBy},
+		))
+		if containsVersion(poweredBy) {
+			result.Findings = append(result.Findings, disclosureFinding(
+				"version-disclosure",
+				"information_disclosure",
+				"Version disclosure detected in X-Powered-By header",
+				fmt.Sprintf("The X-Powered-By header appears to expose a version string: %q.", poweredBy),
+				models.SeverityLow,
+				models.ConfidenceMedium,
+				[]string{headersEvidenceID},
+				map[string]interface{}{"header": "X-Powered-By", "value": poweredBy},
+			))
+		}
+	}
+
+	if strings.TrimSpace(resp.Header.Get("CF-Ray")) != "" {
+		cloudflareDetected = true
+	}
+
+	if strings.TrimSpace(resp.Header.Get("X-Vercel-Id")) != "" {
+		vercelDetected = true
+	}
+	common.AddSignal(&result, models.SignalHostingCloudflare, cloudflareDetected, models.ConfidenceHigh, "fingerprint.headers", headersEvidenceID)
+	common.AddSignal(&result, models.SignalHostingVercel, vercelDetected, models.ConfidenceHigh, "fingerprint.headers", headersEvidenceID)
+
+	hasJSBundles := len(scriptURLs) > 0
+	common.AddSignal(&result, models.SignalAssetsJSBundle, hasJSBundles, models.ConfidenceMedium, "fingerprint.html", htmlEvidenceID)
+
+	hasNextAssets := htmlMarkers["next_static"] == true
+	common.AddSignal(&result, models.SignalAssetsNextStatic, hasNextAssets, models.ConfidenceHigh, "fingerprint.html", htmlEvidenceID)
+	nextDetected := hasNextAssets || strings.EqualFold(poweredBy, "Next.js")
+	common.AddSignal(&result, models.SignalFrameworkNextJS, nextDetected, models.ConfidenceHigh, "fingerprint.combined", htmlEvidenceID, headersEvidenceID)
+
+	wordpressDetected := htmlMarkers["wordpress"] == true || strings.Contains(strings.ToLower(generator), "wordpress")
+	common.AddSignal(&result, models.SignalFrameworkWordPress, wordpressDetected, models.ConfidenceHigh, "fingerprint.html", htmlEvidenceID)
+
+	result.Metadata["status_code"] = resp.StatusCode
+	result.Metadata["final_url"] = resp.Request.URL.String()
+	result.Metadata["script_url_count"] = len(scriptURLs)
+	result.Metadata["markers"] = htmlMarkers
 	result.DurationMs = time.Since(startedAt).Milliseconds()
 	result.Status = models.StatusSuccess
 
 	return result
 }
 
-func technologyFinding(category string, title string, technology string, confidence string, evidence string) models.Finding {
+func disclosureFinding(
+	findingType string,
+	category string,
+	title string,
+	summary string,
+	severity string,
+	confidence string,
+	evidenceRefs []string,
+	details map[string]interface{},
+) models.Finding {
 	return models.Finding{
-		Type:       "detected_technology",
-		Category:   category,
-		Title:      title,
-		Severity:   models.SeverityInfo,
-		Confidence: confidence,
-		Evidence:   evidence,
-		Details: map[string]interface{}{
-			"technology":   technology,
-			"tool_version": "v1",
-		},
+		Type:         findingType,
+		Category:     category,
+		Title:        title,
+		Summary:      summary,
+		Severity:     severity,
+		Confidence:   confidence,
+		Evidence:     summary,
+		EvidenceRefs: evidenceRefs,
+		Details:      details,
 	}
 }
 
@@ -169,9 +208,7 @@ func detectGenerator(html string) string {
 		if index == -1 {
 			return ""
 		}
-
-		nameIndex := strings.Index(lower[index:], `name="generator"`)
-		if nameIndex == -1 {
+		if strings.Index(lower[index:], `name="generator"`) == -1 {
 			return ""
 		}
 	}
@@ -189,30 +226,35 @@ func detectGenerator(html string) string {
 	return strings.TrimSpace(html[start : start+end])
 }
 
-func containsAnyFold(value string, needles ...string) bool {
-	lower := strings.ToLower(value)
-	for _, needle := range needles {
-		if strings.Contains(lower, strings.ToLower(needle)) {
-			return true
+func extractScriptURLs(html string) []interface{} {
+	results := make([]interface{}, 0, 4)
+	lower := strings.ToLower(html)
+	search := `script src="`
+	offset := 0
+	for len(results) < 6 {
+		index := strings.Index(lower[offset:], search)
+		if index == -1 {
+			break
 		}
+		start := offset + index + len(search)
+		end := strings.Index(html[start:], `"`)
+		if end == -1 {
+			break
+		}
+		results = append(results, strings.TrimSpace(html[start:start+end]))
+		offset = start + end
 	}
-	return false
+	return results
 }
 
-func appendUnique(values []interface{}, value string) []interface{} {
-	for _, existing := range values {
-		if existing == value {
-			return values
-		}
+func detectHTMLMarkers(html string) map[string]interface{} {
+	lower := strings.ToLower(html)
+	return map[string]interface{}{
+		"next_static": strings.Contains(lower, "/_next/static/") || strings.Contains(lower, "__next"),
+		"wordpress":   strings.Contains(lower, "/wp-content/") || strings.Contains(lower, "/wp-includes/"),
 	}
-	return append(values, value)
 }
 
-func appendIfMissing(findings []models.Finding, candidate models.Finding) []models.Finding {
-	for _, finding := range findings {
-		if finding.Category == candidate.Category && finding.Details["technology"] == candidate.Details["technology"] {
-			return findings
-		}
-	}
-	return append(findings, candidate)
+func containsVersion(value string) bool {
+	return versionPattern.MatchString(value)
 }

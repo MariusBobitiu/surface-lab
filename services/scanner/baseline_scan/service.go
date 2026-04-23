@@ -11,6 +11,7 @@ import (
 	files "github.com/MariusBobitiu/surface-lab/scanner-service/tools/files"
 	fingerprint "github.com/MariusBobitiu/surface-lab/scanner-service/tools/fingerprint"
 	headers "github.com/MariusBobitiu/surface-lab/scanner-service/tools/headers"
+	targeting "github.com/MariusBobitiu/surface-lab/scanner-service/tools/targeting/v1"
 	tls "github.com/MariusBobitiu/surface-lab/scanner-service/tools/tls"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -66,17 +67,24 @@ func (s *Service) Run(ctx context.Context, target string) (Result, error) {
 		return Result{}, fmt.Errorf("create scan: %w", err)
 	}
 
+	resolution := targeting.Check(ctx, target)
+	if err := s.persistToolResult(ctx, scanID, resolution.Result); err != nil {
+		return s.failScan(ctx, scanID, fmt.Sprintf("persist %s step: %v", resolution.Result.Tool, err), err)
+	}
+	if isToolFailure(resolution.Result) {
+		return s.failScan(ctx, scanID, toolErrorMessage(resolution.Result), nil)
+	}
+
+	effectiveTarget := target
+	if resolution.CanonicalTarget != "" {
+		effectiveTarget = resolution.CanonicalTarget
+	}
+
 	for _, tool := range s.tools {
-		result := tool.run(ctx, target)
+		result := tool.run(ctx, effectiveTarget)
 
-		if _, err := s.queries.CreateScanStep(ctx, newScanStepParams(scanID, result)); err != nil {
+		if err := s.persistToolResult(ctx, scanID, result); err != nil {
 			return s.failScan(ctx, scanID, fmt.Sprintf("persist %s step: %v", tool.name, err), err)
-		}
-
-		for _, finding := range result.Findings {
-			if _, err := s.queries.CreateFinding(ctx, newFindingParams(scanID, result.Tool, finding)); err != nil {
-				return s.failScan(ctx, scanID, fmt.Sprintf("persist %s finding: %v", tool.name, err), err)
-			}
 		}
 
 		if isToolFailure(result) {
@@ -123,6 +131,32 @@ func (s *Service) failScan(ctx context.Context, scanID pgtype.UUID, message stri
 		ScanID: uuidString(scanID),
 		Status: statusFailed,
 	}, cause
+}
+
+func (s *Service) persistToolResult(ctx context.Context, scanID pgtype.UUID, result models.ToolResult) error {
+	if _, err := s.queries.CreateScanStep(ctx, newScanStepParams(scanID, result)); err != nil {
+		return err
+	}
+
+	for _, evidence := range result.Evidence {
+		if _, err := s.queries.CreateEvidence(ctx, newEvidenceParams(scanID, result.Tool, evidence)); err != nil {
+			return fmt.Errorf("persist %s evidence: %w", result.Tool, err)
+		}
+	}
+
+	for _, signal := range result.Signals {
+		if _, err := s.queries.CreateSignal(ctx, newSignalParams(scanID, result.Tool, signal)); err != nil {
+			return fmt.Errorf("persist %s signal: %w", result.Tool, err)
+		}
+	}
+
+	for _, finding := range result.Findings {
+		if _, err := s.queries.CreateFinding(ctx, newFindingParams(scanID, result.Tool, finding)); err != nil {
+			return fmt.Errorf("persist %s finding: %w", result.Tool, err)
+		}
+	}
+
+	return nil
 }
 
 func isToolFailure(result models.ToolResult) bool {

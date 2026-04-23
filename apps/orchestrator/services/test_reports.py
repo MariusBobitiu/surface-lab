@@ -17,6 +17,7 @@ class ReportMergingTests(unittest.TestCase):
         scan = {
             "id": "scan-1",
             "target": "https://example.com",
+            "canonical_target": "https://www.example.com",
             "status": "completed",
             "created_at": created_at,
             "completed_at": created_at,
@@ -61,6 +62,7 @@ class ReportMergingTests(unittest.TestCase):
 
         self.assertEqual(report.summary.total, 2)
         self.assertEqual(report.summary.medium, 1)
+        self.assertEqual(report.target, "https://www.example.com")
         self.assertEqual(report.top_issues[0].title, "WordPress XML-RPC endpoint appears enabled")
         self.assertEqual(report.categories[0].name, "WordPress Stack")
         self.assertEqual(enriched_report.categories[0].name, "WordPress Stack")

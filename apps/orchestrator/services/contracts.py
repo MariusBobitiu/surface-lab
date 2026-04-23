@@ -7,7 +7,8 @@ class AdvancedScanContract:
     description: str
     service: str
     tags: tuple[str, ...]
-    trigger_signals: tuple[str, ...]
+    signal_triggers: tuple[str, ...]
+    legacy_trigger_terms: tuple[str, ...]
     timeout_seconds: float
     retryable: bool
     max_retries: int
@@ -20,7 +21,8 @@ ADVANCED_SCAN_CONTRACTS: dict[str, AdvancedScanContract] = {
         description="Run the wp-stack specialist service for deterministic WordPress surface and exposure checks.",
         service="wp-stack",
         tags=("cms", "wordpress", "php"),
-        trigger_signals=("wordpress", "wp-content", "wp-json", "generator:wordpress"),
+        signal_triggers=("framework.wordpress",),
+        legacy_trigger_terms=("wordpress", "wp-content", "wp-json", "generator:wordpress"),
         timeout_seconds=20.0,
         retryable=True,
         max_retries=1,
@@ -31,7 +33,8 @@ ADVANCED_SCAN_CONTRACTS: dict[str, AdvancedScanContract] = {
         description="Run Next.js-oriented follow-up checks when baseline findings indicate a Next.js application surface.",
         service="nextjs-specialist",
         tags=("frontend", "nextjs", "react", "nodejs"),
-        trigger_signals=("next.js", "nextjs", "__next", "x-powered-by: next.js"),
+        signal_triggers=("framework.nextjs", "assets.next_static"),
+        legacy_trigger_terms=("next.js", "nextjs", "__next", "x-powered-by: next.js"),
         timeout_seconds=20.0,
         retryable=False,
         max_retries=0,
@@ -42,7 +45,8 @@ ADVANCED_SCAN_CONTRACTS: dict[str, AdvancedScanContract] = {
         description="Run a safe generic HTTP follow-up path when the stack is unclear but more normalized advanced context is still useful.",
         service="generic-http-specialist",
         tags=("http", "generic", "fallback"),
-        trigger_signals=("http", "https", "headers", "transport"),
+        signal_triggers=("security.https", "transport.redirected", "assets.js_bundle"),
+        legacy_trigger_terms=("http", "https", "headers", "transport"),
         timeout_seconds=10.0,
         retryable=True,
         max_retries=1,

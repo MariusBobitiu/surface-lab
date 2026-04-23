@@ -450,4 +450,4 @@ pip-selfcheck.json
 
 # Proto contracts
 *.proto
-proto/
+!proto/.gitkeep

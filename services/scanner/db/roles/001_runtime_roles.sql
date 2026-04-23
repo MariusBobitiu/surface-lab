@@ -80,10 +80,14 @@ REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
 GRANT SELECT, INSERT, UPDATE ON TABLE public.scans TO surfacelab_scanner;
 GRANT SELECT, INSERT ON TABLE public.scan_steps TO surfacelab_scanner;
 GRANT SELECT, INSERT ON TABLE public.findings TO surfacelab_scanner;
+GRANT SELECT, INSERT ON TABLE public.signals TO surfacelab_scanner;
+GRANT SELECT, INSERT ON TABLE public.evidence TO surfacelab_scanner;
 
 GRANT SELECT ON TABLE public.scans TO surfacelab_orchestrator;
 GRANT SELECT ON TABLE public.scan_steps TO surfacelab_orchestrator;
 GRANT SELECT ON TABLE public.findings TO surfacelab_orchestrator;
+GRANT SELECT ON TABLE public.signals TO surfacelab_orchestrator;
+GRANT SELECT ON TABLE public.evidence TO surfacelab_orchestrator;
 
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO surfacelab_scanner;
 

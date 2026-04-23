@@ -8,18 +8,30 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Evidence struct {
+	ID        string             `json:"id"`
+	ScanID    pgtype.UUID        `json:"scan_id"`
+	ToolName  string             `json:"tool_name"`
+	Kind      string             `json:"kind"`
+	Target    pgtype.Text        `json:"target"`
+	Data      []byte             `json:"data"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type Finding struct {
-	ID         pgtype.UUID        `json:"id"`
-	ScanID     pgtype.UUID        `json:"scan_id"`
-	ToolName   string             `json:"tool_name"`
-	Type       string             `json:"type"`
-	Category   string             `json:"category"`
-	Title      string             `json:"title"`
-	Severity   string             `json:"severity"`
-	Confidence string             `json:"confidence"`
-	Evidence   string             `json:"evidence"`
-	Details    []byte             `json:"details"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	ID           pgtype.UUID        `json:"id"`
+	ScanID       pgtype.UUID        `json:"scan_id"`
+	ToolName     string             `json:"tool_name"`
+	Type         string             `json:"type"`
+	Category     string             `json:"category"`
+	Title        string             `json:"title"`
+	Severity     string             `json:"severity"`
+	Confidence   string             `json:"confidence"`
+	Evidence     string             `json:"evidence"`
+	Details      []byte             `json:"details"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	Summary      string             `json:"summary"`
+	EvidenceRefs []byte             `json:"evidence_refs"`
 }
 
 type Scan struct {
@@ -41,4 +53,16 @@ type ScanStep struct {
 	DurationMs  int64              `json:"duration_ms"`
 	RawMetadata []byte             `json:"raw_metadata"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type Signal struct {
+	ID           pgtype.UUID        `json:"id"`
+	ScanID       pgtype.UUID        `json:"scan_id"`
+	ToolName     string             `json:"tool_name"`
+	Key          string             `json:"key"`
+	Value        []byte             `json:"value"`
+	Confidence   string             `json:"confidence"`
+	Source       string             `json:"source"`
+	EvidenceRefs []byte             `json:"evidence_refs"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 }

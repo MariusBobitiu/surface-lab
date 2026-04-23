@@ -9,8 +9,9 @@ from schemas.scan import (
     ScanReportResponse,
     ScanSummaryResponse,
 )
+from services.baseline_context import build_baseline_context
 from services.enrichment import enrich_findings
-from services.scans import build_summary, fetch_findings, fetch_scan
+from services.scans import build_summary, fetch_evidence, fetch_findings, fetch_scan, fetch_scan_steps, fetch_signals
 from db.postgres import get_db_connection
 
 
@@ -48,7 +49,14 @@ def get_scan_report(scan_id: str) -> ScanReportResponse:
         if scan is None:
             raise LookupError("Scan not found")
 
+        steps = fetch_scan_steps(connection, scan_id)
         findings = fetch_findings(connection, scan_id)
+        signals = fetch_signals(connection, scan_id)
+        evidence = fetch_evidence(connection, scan_id)
+    scan = {
+        **scan,
+        "canonical_target": build_baseline_context(scan, steps, findings, signals, evidence).canonical_url,
+    }
 
     return build_scan_report(scan, findings)
 
@@ -59,7 +67,14 @@ def get_enriched_scan_report(scan_id: str) -> EnrichedReportResponse:
         if scan is None:
             raise LookupError("Scan not found")
 
+        steps = fetch_scan_steps(connection, scan_id)
         findings = fetch_findings(connection, scan_id)
+        signals = fetch_signals(connection, scan_id)
+        evidence = fetch_evidence(connection, scan_id)
+    scan = {
+        **scan,
+        "canonical_target": build_baseline_context(scan, steps, findings, signals, evidence).canonical_url,
+    }
 
     enriched_findings = enrich_findings(findings)
     return build_enriched_report(scan, findings, enriched_findings)
@@ -70,7 +85,7 @@ def build_scan_report(scan: dict, findings: list[FindingResponse]) -> ScanReport
 
     return ScanReportResponse(
         scan_id=str(scan["id"]),
-        target=scan["target"],
+        target=scan.get("canonical_target") or scan["target"],
         status=scan["status"],
         score=_build_score(summary),
         summary=ReportSummaryResponse(**summary.model_dump()),
@@ -90,7 +105,7 @@ def build_enriched_report(
 
     return EnrichedReportResponse(
         scan_id=str(scan["id"]),
-        target=scan["target"],
+        target=scan.get("canonical_target") or scan["target"],
         status=scan["status"],
         score=_build_score(summary),
         summary=ReportSummaryResponse(**summary.model_dump()),

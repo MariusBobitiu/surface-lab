@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/MariusBobitiu/surface-lab/scanner-service/models"
+	"github.com/MariusBobitiu/surface-lab/scanner-service/tools/common"
 	"github.com/MariusBobitiu/surface-lab/scanner-service/utils"
 )
 
@@ -22,15 +23,7 @@ const (
 
 func Check(ctx context.Context, target string) models.ToolResult {
 	startedAt := time.Now()
-	result := models.ToolResult{
-		Tool:     "tls/v1",
-		Target:   target,
-		Status:   models.StatusFailed,
-		Findings: []models.Finding{},
-		Metadata: map[string]interface{}{
-			"tool_version": "v1",
-		},
-	}
+	result := common.NewToolResult("tls/v1", target, "v1")
 
 	httpTarget, httpsTarget, hostname, err := buildTargets(target)
 	if err != nil {
@@ -42,22 +35,33 @@ func Check(ctx context.Context, target string) models.ToolResult {
 	result.Target = httpsTarget
 
 	httpsReachable, certState := checkHTTPS(ctx, httpsTarget, hostname)
-	result.Metadata["https_reachable"] = httpsReachable
-	result.Metadata["certificate_valid"] = certState.valid
+	tlsEvidenceID := common.AddEvidence(&result, "tls_summary", httpsTarget, map[string]interface{}{
+		"https_reachable":   httpsReachable,
+		"certificate_valid": certState.valid,
+		"validation_error":  certState.validationError,
+		"expires_at":        certState.expiresAtString(),
+		"days_remaining":    certState.daysRemaining,
+		"issuer":            certState.issuer,
+		"subject":           certState.subject,
+	})
 
-	if certState.expiresAt != nil {
-		result.Metadata["cert_expires_at"] = certState.expiresAt.UTC().Format(time.RFC3339)
-		result.Metadata["cert_days_remaining"] = certState.daysRemaining
-	}
+	common.AddSignal(&result, models.SignalSecurityHTTPS, httpsReachable, models.ConfidenceHigh, "tls.handshake", tlsEvidenceID)
+	common.AddSignal(&result, models.SignalSecurityTLSCertValid, certState.valid, models.ConfidenceHigh, "tls.handshake", tlsEvidenceID)
+
+	expiringSoon := certState.valid && certState.daysRemaining >= 0 && certState.daysRemaining <= expiringSoonDays
+	common.AddSignal(&result, models.SignalSecurityTLSCertExpiringSoon, expiringSoon, models.ConfidenceHigh, "tls.certificate", tlsEvidenceID)
 
 	if !httpsReachable {
+		summary := fmt.Sprintf("Unable to establish a usable HTTPS connection to %s.", httpsTarget)
 		result.Findings = append(result.Findings, models.Finding{
-			Type:       "https_unavailable",
-			Category:   "transport_security",
-			Title:      "HTTPS is not available",
-			Severity:   models.SeverityHigh,
-			Confidence: models.ConfidenceHigh,
-			Evidence:   fmt.Sprintf("unable to establish a usable HTTPS connection to %s", httpsTarget),
+			Type:         "https-unavailable",
+			Category:     "transport_security",
+			Title:        "HTTPS is not available",
+			Summary:      summary,
+			Severity:     models.SeverityHigh,
+			Confidence:   models.ConfidenceHigh,
+			Evidence:     summary,
+			EvidenceRefs: []string{tlsEvidenceID},
 			Details: map[string]interface{}{
 				"target":       httpsTarget,
 				"tool_version": "v1",
@@ -66,13 +70,16 @@ func Check(ctx context.Context, target string) models.ToolResult {
 	}
 
 	if httpsReachable && !certState.valid {
+		summary := fmt.Sprintf("The TLS certificate could not be validated: %s.", certState.validationError)
 		result.Findings = append(result.Findings, models.Finding{
-			Type:       "invalid_certificate",
-			Category:   "transport_security",
-			Title:      "TLS certificate is invalid",
-			Severity:   models.SeverityHigh,
-			Confidence: models.ConfidenceHigh,
-			Evidence:   certState.validationError,
+			Type:         "invalid-tls-certificate",
+			Category:     "transport_security",
+			Title:        "TLS certificate is invalid",
+			Summary:      summary,
+			Severity:     models.SeverityHigh,
+			Confidence:   models.ConfidenceHigh,
+			Evidence:     summary,
+			EvidenceRefs: []string{tlsEvidenceID},
 			Details: map[string]interface{}{
 				"target":       httpsTarget,
 				"tool_version": "v1",
@@ -80,36 +87,44 @@ func Check(ctx context.Context, target string) models.ToolResult {
 		})
 	}
 
-	if certState.valid && certState.daysRemaining >= 0 && certState.daysRemaining <= expiringSoonDays {
+	if expiringSoon {
+		summary := fmt.Sprintf("The TLS certificate expires in %d days.", certState.daysRemaining)
 		result.Findings = append(result.Findings, models.Finding{
-			Type:       "certificate_expiring_soon",
-			Category:   "transport_security",
-			Title:      "TLS certificate expires soon",
-			Severity:   models.SeverityMedium,
-			Confidence: models.ConfidenceHigh,
-			Evidence:   fmt.Sprintf("certificate expires in %d days", certState.daysRemaining),
+			Type:         "certificate-expiring-soon",
+			Category:     "transport_security",
+			Title:        "TLS certificate expires soon",
+			Summary:      summary,
+			Severity:     models.SeverityMedium,
+			Confidence:   models.ConfidenceHigh,
+			Evidence:     summary,
+			EvidenceRefs: []string{tlsEvidenceID},
 			Details: map[string]interface{}{
-				"cert_expires_at":     certState.expiresAt.UTC().Format(time.RFC3339),
+				"cert_expires_at":     certState.expiresAtString(),
 				"cert_days_remaining": certState.daysRemaining,
 				"tool_version":        "v1",
 			},
 		})
 	}
 
-	redirectsToHTTPS, redirectURL := checkHTTPRedirect(ctx, httpTarget)
-	result.Metadata["http_redirects_to_https"] = redirectsToHTTPS
-	if redirectURL != "" {
-		result.Metadata["http_redirect_location"] = redirectURL
-	}
+	redirectsToHTTPS, redirectURL, redirectStatus := checkHTTPRedirect(ctx, httpTarget)
+	redirectEvidenceID := common.AddEvidence(&result, "http_redirect_probe", httpTarget, map[string]interface{}{
+		"redirects_to_https": redirectsToHTTPS,
+		"status_code":        redirectStatus,
+		"location":           redirectURL,
+	})
+	common.AddSignal(&result, models.SignalSecurityHTTPRedirectsToHTTPS, redirectsToHTTPS, models.ConfidenceHigh, "tls.http_redirect", redirectEvidenceID)
 
 	if !redirectsToHTTPS {
+		summary := fmt.Sprintf("%s did not redirect to an HTTPS URL.", httpTarget)
 		result.Findings = append(result.Findings, models.Finding{
-			Type:       "missing_https_redirect",
-			Category:   "transport_security",
-			Title:      "HTTP does not redirect to HTTPS",
-			Severity:   models.SeverityMedium,
-			Confidence: models.ConfidenceMedium,
-			Evidence:   fmt.Sprintf("%s did not redirect to an HTTPS URL", httpTarget),
+			Type:         "no-http-to-https-redirect",
+			Category:     "transport_security",
+			Title:        "HTTP does not redirect to HTTPS",
+			Summary:      summary,
+			Severity:     models.SeverityMedium,
+			Confidence:   models.ConfidenceMedium,
+			Evidence:     summary,
+			EvidenceRefs: []string{redirectEvidenceID},
 			Details: map[string]interface{}{
 				"target":       httpTarget,
 				"tool_version": "v1",
@@ -117,6 +132,8 @@ func Check(ctx context.Context, target string) models.ToolResult {
 		})
 	}
 
+	result.Metadata["https_target"] = httpsTarget
+	result.Metadata["http_target"] = httpTarget
 	result.DurationMs = time.Since(startedAt).Milliseconds()
 	result.Status = models.StatusSuccess
 	return result
@@ -127,6 +144,16 @@ type certificateState struct {
 	expiresAt       *time.Time
 	daysRemaining   int64
 	validationError string
+	issuer          string
+	subject         string
+}
+
+func (c certificateState) expiresAtString() string {
+	if c.expiresAt == nil {
+		return ""
+	}
+
+	return c.expiresAt.UTC().Format(time.RFC3339)
 }
 
 func buildTargets(target string) (string, string, string, error) {
@@ -209,39 +236,41 @@ func checkHTTPS(ctx context.Context, httpsTarget string, hostname string) (bool,
 	return true, state
 }
 
-func checkHTTPRedirect(ctx context.Context, httpTarget string) (bool, string) {
+func checkHTTPRedirect(ctx context.Context, httpTarget string) (bool, string, int) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, httpTarget, nil)
 	if err != nil {
-		return false, ""
+		return false, "", 0
 	}
 
 	req.Header.Set("User-Agent", utils.DefaultUserAgent)
 
 	resp, err := utils.NewHTTPClientNoRedirect(httpTimeout).Do(req)
 	if err != nil {
-		return false, ""
+		return false, "", 0
 	}
 	defer resp.Body.Close()
 
 	location := resp.Header.Get("Location")
 	if location == "" {
-		return false, ""
+		return false, "", resp.StatusCode
 	}
 
 	redirectURL, err := resp.Location()
 	if err != nil {
-		return false, location
+		return false, location, resp.StatusCode
 	}
 
 	if strings.EqualFold(redirectURL.Scheme, "https") {
-		return true, redirectURL.String()
+		return true, redirectURL.String(), resp.StatusCode
 	}
 
-	return false, redirectURL.String()
+	return false, redirectURL.String(), resp.StatusCode
 }
 
 func populateCertificateState(state *certificateState, cert *x509.Certificate) {
 	expiresAt := cert.NotAfter.UTC()
 	state.expiresAt = &expiresAt
 	state.daysRemaining = int64(time.Until(expiresAt).Hours() / 24)
+	state.issuer = cert.Issuer.String()
+	state.subject = cert.Subject.String()
 }

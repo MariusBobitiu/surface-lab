@@ -2,7 +2,8 @@ from typing import Any
 from typing_extensions import NotRequired, TypedDict
 
 from schemas.planner import AdvancedContractExecutionResult, AdvancedExecutionPlan, PlannerSelection
-from schemas.scan import EnrichedFindingResponse, EnrichedReportResponse, FindingResponse, ScanReportResponse, ScanStepResponse
+from schemas.scan import EnrichedFindingResponse, EnrichedReportResponse, FindingResponse, ScanReportResponse, ScanStepResponse, SignalResponse
+from services.baseline_context import BaselineContext
 
 
 class EnrichedReportGraphState(TypedDict):
@@ -10,8 +11,10 @@ class EnrichedReportGraphState(TypedDict):
     target: NotRequired[str]
     scan: NotRequired[dict[str, Any]]
     baseline_result: NotRequired[dict[str, Any]]
+    baseline_context: NotRequired[BaselineContext]
     steps: NotRequired[list[ScanStepResponse]]
     baseline_findings: NotRequired[list[FindingResponse]]
+    baseline_signals: NotRequired[list[SignalResponse]]
     findings: NotRequired[list[FindingResponse]]
     selected_contracts: NotRequired[list[str]]
     executed_contracts: NotRequired[list[str]]

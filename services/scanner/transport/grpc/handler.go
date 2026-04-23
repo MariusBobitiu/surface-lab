@@ -90,6 +90,13 @@ func (s *toolServiceServer) RunBaselineScan(ctx context.Context, req *BaselineSc
 func toProtoToolResult(result models.ToolResult) *ToolResult {
 	findings := make([]*Finding, 0, len(result.Findings))
 	for _, finding := range result.Findings {
+		details := cloneMap(finding.Details)
+		if finding.Summary != "" {
+			details["summary"] = finding.Summary
+		}
+		if len(finding.EvidenceRefs) > 0 {
+			details["evidence_refs"] = toInterfaceSlice(finding.EvidenceRefs)
+		}
 		findings = append(findings, &Finding{
 			Type:       finding.Type,
 			Category:   finding.Category,
@@ -97,9 +104,13 @@ func toProtoToolResult(result models.ToolResult) *ToolResult {
 			Severity:   finding.Severity,
 			Confidence: finding.Confidence,
 			Evidence:   finding.Evidence,
-			Details:    toStruct(finding.Details),
+			Details:    toStruct(details),
 		})
 	}
+
+	metadata := cloneMap(result.Metadata)
+	metadata["signals"] = result.Signals
+	metadata["evidence"] = result.Evidence
 
 	return &ToolResult{
 		Tool:       result.Tool,
@@ -107,7 +118,7 @@ func toProtoToolResult(result models.ToolResult) *ToolResult {
 		Status:     result.Status,
 		DurationMs: result.DurationMs,
 		Findings:   findings,
-		Metadata:   toStruct(result.Metadata),
+		Metadata:   toStruct(metadata),
 		Error:      result.Error,
 	}
 }
@@ -124,5 +135,25 @@ func toStruct(values map[string]interface{}) *structpb.Struct {
 		}}
 	}
 
+	return result
+}
+
+func cloneMap(values map[string]interface{}) map[string]interface{} {
+	if len(values) == 0 {
+		return map[string]interface{}{}
+	}
+
+	cloned := make(map[string]interface{}, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func toInterfaceSlice(values []string) []interface{} {
+	result := make([]interface{}, 0, len(values))
+	for _, value := range values {
+		result = append(result, value)
+	}
 	return result
 }

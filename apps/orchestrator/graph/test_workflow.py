@@ -9,7 +9,7 @@ os.environ.setdefault("ORCHESTRATOR_API_KEY", "dev-orchestrator-api-key")
 from graph.nodes import route_after_evaluation, route_after_merge, route_after_plan
 from graph.workflow import run_enriched_report_workflow
 from schemas.planner import PlannerSelection
-from schemas.scan import FindingResponse
+from schemas.scan import FindingResponse, SignalResponse
 from services.event_bus import cleanup_scan_stream, subscribe
 from services.workflow_runner import run_or_wait_scan_workflow
 
@@ -82,6 +82,15 @@ class WorkflowRoutingTests(unittest.TestCase):
             details={"generator": "WordPress"},
             created_at=created_at,
         )
+        signal = SignalResponse(
+            id="s-1",
+            tool_name="fingerprint/v1",
+            key="framework.wordpress",
+            value=True,
+            confidence="high",
+            source="fingerprint.html",
+            created_at=created_at,
+        )
 
         connection_context = MagicMock()
         connection_context.__enter__.return_value = object()
@@ -101,6 +110,8 @@ class WorkflowRoutingTests(unittest.TestCase):
             ),
             patch("graph.nodes.fetch_scan_steps", return_value=[]),
             patch("graph.nodes.fetch_findings", return_value=[finding]),
+            patch("graph.nodes.fetch_signals", return_value=[signal]),
+            patch("graph.nodes.fetch_evidence", return_value=[]),
             patch(
                 "graph.nodes.plan_advanced_scans",
                 return_value=PlannerSelection(

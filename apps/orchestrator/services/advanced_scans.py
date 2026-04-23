@@ -8,6 +8,7 @@ import grpc
 from grpc_clients.wp_stack_client import is_wp_stack_enabled, run_wordpress_stack
 from schemas.planner import AdvancedContractExecutionResult, AdvancedContractFinding, AdvancedExecutionPlan, PlannerSelection
 from schemas.scan import FindingResponse
+from services.baseline_context import BaselineContext
 from services.contracts import AdvancedScanContract, get_advanced_scan_contract, list_advanced_scan_contracts
 from services.event_bus import publish_scan_event
 
@@ -29,7 +30,7 @@ class PartialAdvancedScanError(Exception):
 
 def execute_advanced_scan_plan(
     planner_result: PlannerSelection | AdvancedExecutionPlan,
-    findings: list[FindingResponse],
+    baseline_context: BaselineContext,
     scan: dict | None = None,
     scan_id: str | None = None,
 ) -> list[AdvancedContractExecutionResult]:
@@ -63,7 +64,7 @@ def execute_advanced_scan_plan(
                 },
             )
 
-        result = _execute_contract_with_timeout(contract, findings, scan)
+        result = _execute_contract_with_timeout(contract, baseline_context, scan)
         results.append(result)
 
         if scan_id is not None:
@@ -124,40 +125,47 @@ def merge_advanced_findings(
     scan: dict | None = None,
 ) -> list[FindingResponse]:
     merged_findings = list(findings)
+    seen = {_finding_signature(finding) for finding in findings}
     created_at = _resolve_advanced_created_at(scan)
 
     for result in advanced_results:
         for index, finding in enumerate(result.findings, start=1):
-            merged_findings.append(
-                FindingResponse(
-                    id=f"advanced-{result.contract}-{index}",
-                    tool_name=finding.tool_name,
-                    type=finding.type,
-                    category=finding.category,
-                    title=finding.title,
-                    severity=finding.severity,
-                    confidence=finding.confidence,
-                    evidence=finding.evidence,
-                    details={
-                        **finding.details,
-                        "advanced_contract": result.contract,
-                        "advanced_status": result.status,
-                    },
-                    created_at=created_at,
-                )
+            merged_finding = FindingResponse(
+                id=f"advanced-{result.contract}-{index}",
+                tool_name=finding.tool_name,
+                type=finding.type,
+                category=finding.category,
+                title=finding.title,
+                summary=getattr(finding, "summary", None),
+                severity=finding.severity,
+                confidence=finding.confidence,
+                evidence=finding.evidence,
+                evidence_refs=getattr(finding, "evidence_refs", []),
+                details={
+                    **finding.details,
+                    "advanced_contract": result.contract,
+                    "advanced_status": result.status,
+                },
+                created_at=created_at,
             )
+            signature = _finding_signature(merged_finding)
+            if signature in seen:
+                continue
+
+            seen.add(signature)
+            merged_findings.append(merged_finding)
 
     return merged_findings
 
 
-def analyze_baseline_findings(findings: list[FindingResponse]) -> dict:
+def analyze_baseline_findings(baseline_context: BaselineContext) -> dict:
     contract_matches: dict[str, list[str]] = {}
 
     for contract in list_advanced_scan_contracts():
         if contract.name == "generic_http.v1.run_stack":
             continue
 
-        matched_signals = _match_trigger_signals(contract, findings)
+        matched_signals = _match_trigger_signals(contract, baseline_context)
         if matched_signals:
             contract_matches[contract.name] = matched_signals
 
@@ -167,7 +175,12 @@ def analyze_baseline_findings(findings: list[FindingResponse]) -> dict:
     return {
         "ambiguous_evidence": ambiguous_evidence,
         "contract_signal_matches": contract_matches,
-        "fingerprint_findings": sum(1 for finding in findings if finding.category.lower().startswith("fingerprint_")),
+        "fingerprint_findings": sum(
+            1 for finding in baseline_context.findings if finding.category.lower().startswith("fingerprint_")
+        ),
+        "signal_count": len(baseline_context.signal_map),
+        "canonical_url": baseline_context.canonical_url,
+        "redirected": baseline_context.redirected,
     }
 
 
@@ -256,13 +269,13 @@ def replace_advanced_results(
 
 def _execute_contract_with_timeout(
     contract: AdvancedScanContract,
-    findings: list[FindingResponse],
+    baseline_context: BaselineContext,
     scan: dict | None,
 ) -> AdvancedContractExecutionResult:
     started_at = time.monotonic()
 
     executor = ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(_dispatch_contract, contract, findings, scan)
+    future = executor.submit(_dispatch_contract, contract, baseline_context, scan)
 
     try:
         result = future.result(timeout=contract.timeout_seconds)
@@ -324,7 +337,7 @@ def _execute_contract_with_timeout(
 
 def _dispatch_contract(
     contract: AdvancedScanContract,
-    findings: list[FindingResponse],
+    baseline_context: BaselineContext,
     scan: dict | None,
 ) -> AdvancedContractExecutionResult:
     handlers = {
@@ -337,16 +350,16 @@ def _dispatch_contract(
     if handler is None:
         raise RuntimeError(f"No handler registered for contract {contract.name}")
 
-    return handler(contract, findings, scan)
+    return handler(contract, baseline_context, scan)
 
 
 def _run_wordpress_contract(
     contract: AdvancedScanContract,
-    findings: list[FindingResponse],
+    baseline_context: BaselineContext,
     scan: dict | None,
 ) -> AdvancedContractExecutionResult:
-    matched_signals = _match_trigger_signals(contract, findings)
-    target = scan.get("target") if scan else None
+    matched_signals = _match_trigger_signals(contract, baseline_context)
+    target = _resolve_execution_target(scan, baseline_context)
 
     if target and is_wp_stack_enabled():
         try:
@@ -354,7 +367,9 @@ def _run_wordpress_contract(
                 target,
                 metadata={
                     "matched_signals": matched_signals,
-                    "baseline_finding_count": len(findings),
+                    "baseline_finding_count": len(baseline_context.findings),
+                    "canonical_target": baseline_context.canonical_url,
+                    "redirected": baseline_context.redirected,
                 },
             )
         except grpc.RpcError as exc:
@@ -429,7 +444,7 @@ def _run_wordpress_contract(
 
 def _run_nextjs_contract(
     contract: AdvancedScanContract,
-    findings: list[FindingResponse],
+    baseline_context: BaselineContext,
     scan: dict | None,
 ) -> AdvancedContractExecutionResult:
     return AdvancedContractExecutionResult(
@@ -438,15 +453,16 @@ def _run_nextjs_contract(
         findings=[],
         metadata={
             "service_status": "stubbed",
-            "matched_signals": _match_trigger_signals(contract, findings),
-            "target": scan.get("target") if scan else None,
+            "matched_signals": _match_trigger_signals(contract, baseline_context),
+            "target": _resolve_execution_target(scan, baseline_context),
+            "canonical_target": baseline_context.canonical_url,
         },
     )
 
 
 def _run_generic_http_contract(
     contract: AdvancedScanContract,
-    findings: list[FindingResponse],
+    baseline_context: BaselineContext,
     scan: dict | None,
 ) -> AdvancedContractExecutionResult:
     return AdvancedContractExecutionResult(
@@ -455,19 +471,28 @@ def _run_generic_http_contract(
         findings=[],
         metadata={
             "service_status": "stubbed",
-            "baseline_finding_count": len(findings),
-            "target": scan.get("target") if scan else None,
+            "baseline_finding_count": len(baseline_context.findings),
+            "baseline_signal_count": len(baseline_context.signal_map),
+            "target": _resolve_execution_target(scan, baseline_context),
+            "canonical_target": baseline_context.canonical_url,
         },
     )
 
 
-def _match_trigger_signals(contract: AdvancedScanContract, findings: list[FindingResponse]) -> list[str]:
+def _match_trigger_signals(
+    contract: AdvancedScanContract,
+    baseline_context: BaselineContext,
+) -> list[str]:
     haystack_parts: list[str] = []
+    active_signal_keys = {key.lower() for key, signal in baseline_context.signal_map.items() if signal.value is True}
 
-    for finding in findings:
+    matched = [signal for signal in contract.signal_triggers if signal.lower() in active_signal_keys]
+
+    for finding in baseline_context.findings:
         haystack_parts.extend(
             [
                 finding.title,
+                finding.summary or "",
                 finding.category,
                 finding.evidence,
                 finding.tool_name,
@@ -477,7 +502,19 @@ def _match_trigger_signals(contract: AdvancedScanContract, findings: list[Findin
 
     haystack = " ".join(haystack_parts).lower()
 
-    return [signal for signal in contract.trigger_signals if signal.lower() in haystack]
+    for term in contract.legacy_trigger_terms:
+        if term.lower() in haystack and term not in matched:
+            matched.append(term)
+
+    return matched
+
+
+def _resolve_execution_target(scan: dict | None, baseline_context: BaselineContext) -> str | None:
+    if baseline_context.canonical_url:
+        return baseline_context.canonical_url
+    if scan is None:
+        return None
+    return scan.get("canonical_target") or scan.get("target")
 
 
 def _normalize_contract_status(status: str | None) -> str:
@@ -512,6 +549,15 @@ def _resolve_advanced_created_at(scan: dict | None) -> datetime:
             return created_at
 
     return datetime.now(timezone.utc)
+
+
+def _finding_signature(finding: FindingResponse) -> tuple[str, str, str, str]:
+    return (
+        finding.tool_name,
+        finding.type,
+        finding.title,
+        finding.evidence,
+    )
 
 
 def create_execution_plan(

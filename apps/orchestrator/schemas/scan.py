@@ -28,10 +28,32 @@ class FindingResponse(BaseModel):
     type: str
     category: str
     title: str
+    summary: str | None = None
     severity: str
     confidence: str
     evidence: str
+    evidence_refs: list[str] = Field(default_factory=list)
     details: dict[str, Any]
+    created_at: datetime
+
+
+class SignalResponse(BaseModel):
+    id: str
+    tool_name: str
+    key: str
+    value: Any
+    confidence: str
+    source: str
+    evidence_refs: list[str] = Field(default_factory=list)
+    created_at: datetime
+
+
+class EvidenceResponse(BaseModel):
+    id: str
+    tool_name: str
+    kind: str
+    target: str | None = None
+    data: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
 
@@ -56,6 +78,8 @@ class ScanDetailsResponse(BaseModel):
     summary: ScanSummaryResponse
     steps: list[ScanStepResponse]
     findings: list[FindingResponse]
+    signals: list[SignalResponse] = Field(default_factory=list)
+    evidence: list[EvidenceResponse] = Field(default_factory=list)
 
 
 class ReportSummaryResponse(BaseModel):
@@ -103,9 +127,11 @@ class EnrichedFindingResponse(BaseModel):
     type: str
     category: str
     title: str
+    summary: str | None = None
     severity: str
     confidence: str
     evidence: str
+    evidence_refs: list[str] = Field(default_factory=list)
     details: dict[str, Any]
     created_at: datetime
     owasp_category: str | None

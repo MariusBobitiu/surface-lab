@@ -2,8 +2,10 @@ from typing import Any
 
 from db.postgres import get_db_connection
 from schemas.scan import (
+    EvidenceResponse,
     FindingResponse,
     ScanDetailsResponse,
+    SignalResponse,
     ScanStepResponse,
     ScanSummaryResponse,
 )
@@ -17,6 +19,8 @@ def get_scan_details(scan_id: str) -> ScanDetailsResponse:
 
         steps = fetch_scan_steps(connection, scan_id)
         findings = fetch_findings(connection, scan_id)
+        signals = fetch_signals(connection, scan_id)
+        evidence = fetch_evidence(connection, scan_id)
 
     return ScanDetailsResponse(
         scan_id=str(scan["id"]),
@@ -30,6 +34,8 @@ def get_scan_details(scan_id: str) -> ScanDetailsResponse:
         summary=build_summary(findings),
         steps=steps,
         findings=findings,
+        signals=signals,
+        evidence=evidence,
     )
 
 
@@ -76,7 +82,7 @@ def fetch_findings(connection, scan_id: str) -> list[FindingResponse]:
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT id, tool_name, type, category, title, severity, confidence, evidence, details, created_at
+            SELECT id, tool_name, type, category, title, summary, severity, confidence, evidence, evidence_refs, details, created_at
             FROM findings
             WHERE scan_id = %s
             ORDER BY created_at ASC
@@ -92,10 +98,66 @@ def fetch_findings(connection, scan_id: str) -> list[FindingResponse]:
             type=row["type"],
             category=row["category"],
             title=row["title"],
+            summary=row.get("summary"),
             severity=row["severity"],
             confidence=row["confidence"],
             evidence=row["evidence"],
+            evidence_refs=row["evidence_refs"] or [],
             details=row["details"] or {},
+            created_at=row["created_at"],
+        )
+        for row in rows
+    ]
+
+
+def fetch_signals(connection, scan_id: str) -> list[SignalResponse]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT id, tool_name, key, value, confidence, source, evidence_refs, created_at
+            FROM signals
+            WHERE scan_id = %s
+            ORDER BY created_at ASC
+            """,
+            (scan_id,),
+        )
+        rows = cursor.fetchall()
+
+    return [
+        SignalResponse(
+            id=str(row["id"]),
+            tool_name=row["tool_name"],
+            key=row["key"],
+            value=row["value"],
+            confidence=row["confidence"],
+            source=row["source"],
+            evidence_refs=row["evidence_refs"] or [],
+            created_at=row["created_at"],
+        )
+        for row in rows
+    ]
+
+
+def fetch_evidence(connection, scan_id: str) -> list[EvidenceResponse]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT id, tool_name, kind, target, data, created_at
+            FROM evidence
+            WHERE scan_id = %s
+            ORDER BY created_at ASC
+            """,
+            (scan_id,),
+        )
+        rows = cursor.fetchall()
+
+    return [
+        EvidenceResponse(
+            id=row["id"],
+            tool_name=row["tool_name"],
+            kind=row["kind"],
+            target=row["target"],
+            data=row["data"] or {},
             created_at=row["created_at"],
         )
         for row in rows
