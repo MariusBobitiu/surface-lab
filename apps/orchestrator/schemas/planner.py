@@ -10,6 +10,13 @@ class PlannerSelection(BaseModel):
     confidence: Literal["low", "medium", "high"]
 
 
+class AdvancedExecutionPlan(BaseModel):
+    confidence: Literal["low", "medium", "high"]
+    raw_selected_contracts: list[str] = Field(default_factory=list)
+    executed_contracts: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class AdvancedContractFinding(BaseModel):
     tool_name: str
     type: str

@@ -1,9 +1,10 @@
-import { z } from "zod"
-
-import { ReportErrorView, ReportView } from "@/components/report-view"
-import { getEnrichedReport } from "@/lib/orchestrator"
+import { ReportView } from "@/components/report-view"
+import { ScanProgress } from "@/components/scan-progress"
+import { getEnrichedReport, getScanDetails } from "@/lib/orchestrator"
 
 export const dynamic = "force-dynamic"
+
+const REPORT_READY_CHECK_TIMEOUT_MS = 1_500
 
 type ReportPageProps = {
   params: Promise<{
@@ -12,20 +13,25 @@ type ReportPageProps = {
 }
 
 export default async function ReportPage({ params }: ReportPageProps) {
-  const reportPageParamsSchema = z.object({
-    scanId: z.string().trim().uuid("Scan ID must be a valid UUID."),
-  })
-  const parsedParams = reportPageParamsSchema.safeParse(await params)
+  const { scanId } = await params
 
-  if (!parsedParams.success) {
-    return <ReportErrorView message="Invalid scan id." />
+  if (!scanId.trim()) {
+    throw new Error("scanId is required")
   }
 
-  let report
+  const scan = await getScanDetails(scanId)
+  const scanCompleted = scan.status.toLowerCase() === "completed"
+
+  if (!scanCompleted) {
+    return <ScanProgress scanId={scanId} />
+  }
+
+  let report: Awaited<ReturnType<typeof getEnrichedReport>> | null = null
+
   try {
-    report = await getEnrichedReport(parsedParams.data.scanId)
-  } catch (error) {
-    return <ReportErrorView message={error instanceof Error ? error.message : "Report unavailable."} />
+    report = await getEnrichedReport(scanId, REPORT_READY_CHECK_TIMEOUT_MS)
+  } catch {
+    return <ScanProgress scanId={scanId} />
   }
 
   return <ReportView report={report} />

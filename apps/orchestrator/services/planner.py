@@ -4,7 +4,7 @@ import logging
 import httpx
 
 from config.settings import OLLAMA_BASE_URL, OLLAMA_ENABLED, OLLAMA_MODEL, OLLAMA_TIMEOUT_SECONDS
-from schemas.planner import PlannerSelection
+from schemas.planner import AdvancedContractExecutionResult, PlannerSelection
 from schemas.scan import FindingResponse
 from services.contracts import AdvancedScanContract
 from services.llm import OLLAMA_GENERATE_PATH, _normalize_ollama_base_url
@@ -16,12 +16,15 @@ logger = logging.getLogger(__name__)
 def plan_advanced_scans(
     findings: list[FindingResponse],
     contracts: list[AdvancedScanContract],
+    previous_planner_result: PlannerSelection | None = None,
+    failed_contracts: list[str] | None = None,
+    advanced_results: list[AdvancedContractExecutionResult] | None = None,
 ) -> PlannerSelection:
     fallback = _build_fallback_plan(findings)
     if not OLLAMA_ENABLED:
         return fallback
 
-    prompt = _build_prompt(findings, contracts)
+    prompt = _build_prompt(findings, contracts, previous_planner_result, failed_contracts or [], advanced_results or [])
     base_url = _normalize_ollama_base_url(OLLAMA_BASE_URL)
 
     try:
@@ -63,7 +66,13 @@ def plan_advanced_scans(
     return _normalize_plan(plan)
 
 
-def _build_prompt(findings: list[FindingResponse], contracts: list[AdvancedScanContract]) -> str:
+def _build_prompt(
+    findings: list[FindingResponse],
+    contracts: list[AdvancedScanContract],
+    previous_planner_result: PlannerSelection | None,
+    failed_contracts: list[str],
+    advanced_results: list[AdvancedContractExecutionResult],
+) -> str:
     available_contracts = [
         {
             "name": contract.name,
@@ -87,6 +96,28 @@ def _build_prompt(findings: list[FindingResponse], contracts: list[AdvancedScanC
         for finding in findings[:10]
     ]
 
+    replan_context = ""
+    if previous_planner_result is not None or failed_contracts or advanced_results:
+        replan_payload = {
+            "previous_planner_result": previous_planner_result.model_dump() if previous_planner_result is not None else None,
+            "failed_contracts": failed_contracts,
+            "advanced_results": [
+                {
+                    "contract": result.contract,
+                    "status": result.status,
+                    "findings_count": len(result.findings),
+                    "error": result.error,
+                    "metadata": _compact_details(result.metadata),
+                }
+                for result in advanced_results
+            ],
+        }
+        replan_context = f"""
+
+Re-plan context:
+{json.dumps(replan_payload, indent=2)}
+"""
+
     return f"""You are selecting advanced stack-specific scan contracts for a security orchestrator.
 
 Choose only from the provided contracts.
@@ -103,6 +134,7 @@ Available contracts:
 
 Baseline findings:
 {json.dumps(compact_findings, indent=2)}
+{replan_context}
 """
 
 

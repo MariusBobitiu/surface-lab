@@ -57,6 +57,12 @@ def _map_owasp_category(finding: FindingResponse) -> str | None:
     category = finding.category.lower()
     finding_type = finding.type.lower()
 
+    if category == "wordpress_exposure":
+        return "A05:2025 - Security Misconfiguration"
+
+    if category == "wordpress_surface":
+        return "A05:2025 - Security Misconfiguration"
+
     if category in {"http_headers", "public_files", "sensitive_file_exposure"}:
         return "A05:2025 - Security Misconfiguration"
 
@@ -72,6 +78,12 @@ def _map_owasp_category(finding: FindingResponse) -> str | None:
 def _map_wstg_reference(finding: FindingResponse) -> str | None:
     category = finding.category.lower()
     title = finding.title.lower()
+
+    if category == "wordpress_fingerprint":
+        return "Information Gathering"
+
+    if category in {"wordpress_surface", "wordpress_exposure"}:
+        return "Configuration and Deployment Management Testing"
 
     if category == "http_headers" or "tls" in category or "certificate" in title or "https" in title:
         return "Configuration and Deployment Management Testing"
@@ -89,6 +101,15 @@ def _build_remediation_summary(finding: FindingResponse) -> str | None:
     title = finding.title.lower()
     evidence = finding.evidence.lower()
     category = finding.category.lower()
+
+    if category == "wordpress_exposure" and "readme" in title:
+        return "Remove public access to the WordPress readme file to reduce unnecessary product disclosure."
+
+    if category == "wordpress_surface" and "xml-rpc" in title:
+        return "Disable XML-RPC if it is not required, or restrict access to trusted clients only."
+
+    if category == "wordpress_surface" and "login" in title:
+        return "Restrict access to the WordPress login surface with network controls, MFA, and rate limiting."
 
     if "strict-transport-security" in title or "hsts" in title:
         return "Add a Strict-Transport-Security header and verify it is applied consistently on HTTPS responses."

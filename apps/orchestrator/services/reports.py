@@ -22,6 +22,9 @@ CATEGORY_MAP = {
     "fingerprint_framework": ("technology-fingerprint", "Technology Fingerprint"),
     "fingerprint_edge": ("technology-fingerprint", "Technology Fingerprint"),
     "fingerprint_generator": ("technology-fingerprint", "Technology Fingerprint"),
+    "wordpress_fingerprint": ("wordpress-stack", "WordPress Stack"),
+    "wordpress_surface": ("wordpress-stack", "WordPress Stack"),
+    "wordpress_exposure": ("wordpress-stack", "WordPress Stack"),
 }
 
 SEVERITY_ORDER = {

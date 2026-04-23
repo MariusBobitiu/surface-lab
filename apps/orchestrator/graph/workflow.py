@@ -2,15 +2,19 @@ from langgraph.graph import END, START, StateGraph
 
 from config.settings import NVD_ENABLED, OLLAMA_ENABLED
 from graph.nodes import (
-    build_report_node,
-    execute_advanced_scans_node,
-    enrich_findings_node,
-    finalize_report_node,
-    load_scan_node,
-    maybe_attach_nvd_node,
-    plan_advanced_scans_node,
-    route_after_enrichment,
-    route_after_finalize,
+    analyze_baseline_node,
+    complete_node,
+    evaluate_contract_results_node,
+    execute_generic_only_node,
+    execute_selected_contracts_node,
+    merge_results_node,
+    plan_contracts_node,
+    replan_contracts_node,
+    retry_failed_contracts_node,
+    route_after_evaluation,
+    route_after_merge,
+    route_after_plan,
+    run_baseline_node,
     summarize_report_node,
 )
 from graph.state import EnrichedReportGraphState
@@ -18,31 +22,59 @@ from graph.state import EnrichedReportGraphState
 
 def build_enriched_report_graph():
     builder = StateGraph(EnrichedReportGraphState)
-    builder.add_node("load_scan_node", load_scan_node)
-    builder.add_node("plan_advanced_scans_node", plan_advanced_scans_node)
-    builder.add_node("execute_advanced_scans_node", execute_advanced_scans_node)
-    builder.add_node("build_report_node", build_report_node)
-    builder.add_node("enrich_findings_node", enrich_findings_node)
-    builder.add_node("maybe_attach_nvd_node", maybe_attach_nvd_node)
-    builder.add_node("finalize_report_node", finalize_report_node)
+    builder.add_node("run_baseline_node", run_baseline_node)
+    builder.add_node("analyze_baseline_node", analyze_baseline_node)
+    builder.add_node("plan_contracts_node", plan_contracts_node)
+    builder.add_node("execute_selected_contracts_node", execute_selected_contracts_node)
+    builder.add_node("execute_generic_only_node", execute_generic_only_node)
+    builder.add_node("evaluate_contract_results_node", evaluate_contract_results_node)
+    builder.add_node("retry_failed_contracts_node", retry_failed_contracts_node)
+    builder.add_node("replan_contracts_node", replan_contracts_node)
+    builder.add_node("merge_results_node", merge_results_node)
     builder.add_node("summarize_report_node", summarize_report_node)
+    builder.add_node("complete_node", complete_node)
 
-    builder.add_edge(START, "load_scan_node")
-    builder.add_edge("load_scan_node", "plan_advanced_scans_node")
-    builder.add_edge("plan_advanced_scans_node", "execute_advanced_scans_node")
-    builder.add_edge("execute_advanced_scans_node", "build_report_node")
-    builder.add_edge("build_report_node", "enrich_findings_node")
-    builder.add_conditional_edges("enrich_findings_node", route_after_enrichment)
-    builder.add_edge("maybe_attach_nvd_node", "finalize_report_node")
+    builder.add_edge(START, "run_baseline_node")
+    builder.add_edge("run_baseline_node", "analyze_baseline_node")
+    builder.add_edge("analyze_baseline_node", "plan_contracts_node")
     builder.add_conditional_edges(
-        "finalize_report_node",
-        route_after_finalize,
+        "plan_contracts_node",
+        route_after_plan,
         {
-            "summarize": "summarize_report_node",
-            "end": END,
+            "execute_selected_contracts_node": "execute_selected_contracts_node",
+            "execute_generic_only_node": "execute_generic_only_node",
         },
     )
-    builder.add_edge("summarize_report_node", END)
+    builder.add_edge("execute_selected_contracts_node", "evaluate_contract_results_node")
+    builder.add_edge("execute_generic_only_node", "evaluate_contract_results_node")
+    builder.add_conditional_edges(
+        "evaluate_contract_results_node",
+        route_after_evaluation,
+        {
+            "retry_failed_contracts_node": "retry_failed_contracts_node",
+            "replan_contracts_node": "replan_contracts_node",
+            "merge_results_node": "merge_results_node",
+        },
+    )
+    builder.add_edge("retry_failed_contracts_node", "evaluate_contract_results_node")
+    builder.add_conditional_edges(
+        "replan_contracts_node",
+        route_after_plan,
+        {
+            "execute_selected_contracts_node": "execute_selected_contracts_node",
+            "execute_generic_only_node": "execute_generic_only_node",
+        },
+    )
+    builder.add_conditional_edges(
+        "merge_results_node",
+        route_after_merge,
+        {
+            "summarize_report_node": "summarize_report_node",
+            "complete_node": "complete_node",
+        },
+    )
+    builder.add_edge("summarize_report_node", "complete_node")
+    builder.add_edge("complete_node", END)
 
     return builder.compile()
 

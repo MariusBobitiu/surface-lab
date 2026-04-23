@@ -9,6 +9,8 @@ class AdvancedScanContract:
     tags: tuple[str, ...]
     trigger_signals: tuple[str, ...]
     timeout_seconds: float
+    retryable: bool
+    max_retries: int
     allow_partial_results: bool
 
 
@@ -20,6 +22,8 @@ ADVANCED_SCAN_CONTRACTS: dict[str, AdvancedScanContract] = {
         tags=("cms", "wordpress", "php"),
         trigger_signals=("wordpress", "wp-content", "wp-json", "generator:wordpress"),
         timeout_seconds=20.0,
+        retryable=True,
+        max_retries=1,
         allow_partial_results=True,
     ),
     "nextjs.v1.run_stack": AdvancedScanContract(
@@ -29,6 +33,8 @@ ADVANCED_SCAN_CONTRACTS: dict[str, AdvancedScanContract] = {
         tags=("frontend", "nextjs", "react", "nodejs"),
         trigger_signals=("next.js", "nextjs", "__next", "x-powered-by: next.js"),
         timeout_seconds=20.0,
+        retryable=False,
+        max_retries=0,
         allow_partial_results=True,
     ),
     "generic_http.v1.run_stack": AdvancedScanContract(
@@ -38,6 +44,8 @@ ADVANCED_SCAN_CONTRACTS: dict[str, AdvancedScanContract] = {
         tags=("http", "generic", "fallback"),
         trigger_signals=("http", "https", "headers", "transport"),
         timeout_seconds=10.0,
+        retryable=True,
+        max_retries=1,
         allow_partial_results=True,
     ),
 }

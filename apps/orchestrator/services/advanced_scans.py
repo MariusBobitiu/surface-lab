@@ -1,13 +1,15 @@
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from datetime import datetime, timezone
 
 import grpc
 
 from grpc_clients.wp_stack_client import is_wp_stack_enabled, run_wordpress_stack
-from schemas.planner import AdvancedContractExecutionResult, AdvancedContractFinding, PlannerSelection
+from schemas.planner import AdvancedContractExecutionResult, AdvancedContractFinding, AdvancedExecutionPlan, PlannerSelection
 from schemas.scan import FindingResponse
-from services.contracts import AdvancedScanContract, get_advanced_scan_contract
+from services.contracts import AdvancedScanContract, get_advanced_scan_contract, list_advanced_scan_contracts
+from services.event_bus import publish_scan_event
 
 
 logger = logging.getLogger(__name__)
@@ -26,13 +28,17 @@ class PartialAdvancedScanError(Exception):
 
 
 def execute_advanced_scan_plan(
-    planner_result: PlannerSelection,
+    planner_result: PlannerSelection | AdvancedExecutionPlan,
     findings: list[FindingResponse],
     scan: dict | None = None,
+    scan_id: str | None = None,
 ) -> list[AdvancedContractExecutionResult]:
+    execution_plan = (
+        planner_result if isinstance(planner_result, AdvancedExecutionPlan) else build_advanced_execution_plan(planner_result)
+    )
     results: list[AdvancedContractExecutionResult] = []
 
-    for contract_name in planner_result.selected_contracts:
+    for contract_name in execution_plan.executed_contracts:
         contract = get_advanced_scan_contract(contract_name)
         if contract is None:
             logger.warning("Skipping unknown advanced scan contract at execution time: %s", contract_name)
@@ -46,9 +52,206 @@ def execute_advanced_scan_plan(
             )
             continue
 
-        results.append(_execute_contract_with_timeout(contract, findings, scan))
+        if scan_id is not None:
+            publish_scan_event(
+                scan_id,
+                "contract.started",
+                "Advanced contract execution started.",
+                {
+                    "contract": contract.name,
+                    "service": contract.service,
+                },
+            )
+
+        result = _execute_contract_with_timeout(contract, findings, scan)
+        results.append(result)
+
+        if scan_id is not None:
+            event_type = "contract.completed" if result.status == "completed" else "contract.failed"
+            publish_scan_event(
+                scan_id,
+                event_type,
+                "Advanced contract execution finished.",
+                {
+                    "contract": contract.name,
+                    "status": result.status,
+                    "finding_count": len(result.findings),
+                    "error": result.error,
+                },
+            )
 
     return results
+
+
+def build_advanced_execution_plan(planner_result: PlannerSelection) -> AdvancedExecutionPlan:
+    raw_selected_contracts = _dedupe_preserving_order(planner_result.selected_contracts)
+    executed_contracts = list(raw_selected_contracts)
+    notes: list[str] = []
+    generic_contract = "generic_http.v1.run_stack" if get_advanced_scan_contract("generic_http.v1.run_stack") else None
+    specialist_contracts = [contract_name for contract_name in raw_selected_contracts if contract_name != generic_contract]
+
+    if planner_result.confidence == "medium":
+        if specialist_contracts and generic_contract and generic_contract not in executed_contracts:
+            executed_contracts.append(generic_contract)
+            notes.append(
+                "Planner confidence was medium, so the orchestrator added generic_http.v1.run_stack for broader coverage."
+            )
+    elif planner_result.confidence == "low":
+        if generic_contract is not None:
+            executed_contracts = [generic_contract]
+            if specialist_contracts or generic_contract not in raw_selected_contracts:
+                notes.append(
+                    "Planner confidence was low, so the orchestrator suppressed speculative specialist execution and ran generic_http.v1.run_stack only."
+                )
+        else:
+            executed_contracts = []
+            if raw_selected_contracts:
+                notes.append(
+                    "Planner confidence was low, so the orchestrator suppressed speculative specialist execution and ran no advanced contracts."
+                )
+
+    return AdvancedExecutionPlan(
+        confidence=planner_result.confidence,
+        raw_selected_contracts=raw_selected_contracts,
+        executed_contracts=_dedupe_preserving_order(executed_contracts),
+        notes=notes,
+    )
+
+
+def merge_advanced_findings(
+    findings: list[FindingResponse],
+    advanced_results: list[AdvancedContractExecutionResult],
+    scan: dict | None = None,
+) -> list[FindingResponse]:
+    merged_findings = list(findings)
+    created_at = _resolve_advanced_created_at(scan)
+
+    for result in advanced_results:
+        for index, finding in enumerate(result.findings, start=1):
+            merged_findings.append(
+                FindingResponse(
+                    id=f"advanced-{result.contract}-{index}",
+                    tool_name=finding.tool_name,
+                    type=finding.type,
+                    category=finding.category,
+                    title=finding.title,
+                    severity=finding.severity,
+                    confidence=finding.confidence,
+                    evidence=finding.evidence,
+                    details={
+                        **finding.details,
+                        "advanced_contract": result.contract,
+                        "advanced_status": result.status,
+                    },
+                    created_at=created_at,
+                )
+            )
+
+    return merged_findings
+
+
+def analyze_baseline_findings(findings: list[FindingResponse]) -> dict:
+    contract_matches: dict[str, list[str]] = {}
+
+    for contract in list_advanced_scan_contracts():
+        if contract.name == "generic_http.v1.run_stack":
+            continue
+
+        matched_signals = _match_trigger_signals(contract, findings)
+        if matched_signals:
+            contract_matches[contract.name] = matched_signals
+
+    best_signal_count = max((len(signals) for signals in contract_matches.values()), default=0)
+    ambiguous_evidence = len(contract_matches) != 1 or best_signal_count < 2
+
+    return {
+        "ambiguous_evidence": ambiguous_evidence,
+        "contract_signal_matches": contract_matches,
+        "fingerprint_findings": sum(1 for finding in findings if finding.category.lower().startswith("fingerprint_")),
+    }
+
+
+def evaluate_advanced_contract_results(
+    advanced_results: list[AdvancedContractExecutionResult],
+    executed_contracts: list[str],
+    retry_counts: dict[str, int] | None = None,
+) -> dict:
+    retry_counts = retry_counts or {}
+    failed_contracts: list[str] = []
+    retryable_contracts: list[str] = []
+    notes: list[str] = []
+    total_findings = 0
+    significant_findings = 0
+    specialist_success = False
+    generic_contract = "generic_http.v1.run_stack"
+    only_generic_executed = bool(executed_contracts) and set(executed_contracts) == {generic_contract}
+
+    for result in advanced_results:
+        total_findings += len(result.findings)
+        significant_findings += sum(
+            1 for finding in result.findings if finding.severity.lower() in {"critical", "high", "medium"}
+        )
+
+        if result.contract != generic_contract and result.status == "completed" and result.findings:
+            specialist_success = True
+
+        if result.status not in {"failed", "timed_out"}:
+            continue
+
+        failed_contracts.append(result.contract)
+        contract = get_advanced_scan_contract(result.contract)
+        if contract is None:
+            notes.append(f"Contract {result.contract} failed but was not retryable because it is not in the registry.")
+            continue
+
+        attempts = retry_counts.get(result.contract, 0)
+        if contract.retryable and attempts < contract.max_retries:
+            retryable_contracts.append(result.contract)
+            notes.append(f"Contract {result.contract} failed and is eligible for retry attempt {attempts + 1}.")
+        else:
+            notes.append(f"Contract {result.contract} failed and is not eligible for further retries.")
+
+    if significant_findings > 0 or specialist_success:
+        result_quality = "sufficient"
+    elif total_findings > 0:
+        result_quality = "partial"
+    elif only_generic_executed and advanced_results:
+        result_quality = "weak"
+    elif advanced_results and any(result.status == "completed" for result in advanced_results):
+        result_quality = "partial"
+    else:
+        result_quality = "weak"
+
+    if not executed_contracts:
+        notes.append("No advanced contracts were executed for this graph run.")
+
+    return {
+        "failed_contracts": _dedupe_preserving_order(failed_contracts),
+        "retryable_contracts": _dedupe_preserving_order(retryable_contracts),
+        "result_quality": result_quality,
+        "notes": notes,
+    }
+
+
+def replace_advanced_results(
+    existing_results: list[AdvancedContractExecutionResult],
+    new_results: list[AdvancedContractExecutionResult],
+) -> list[AdvancedContractExecutionResult]:
+    ordered_results: list[AdvancedContractExecutionResult] = []
+    result_map = {result.contract: result for result in existing_results}
+
+    for result in new_results:
+        result_map[result.contract] = result
+
+    seen: set[str] = set()
+    for result in existing_results + new_results:
+        if result.contract in seen:
+            continue
+
+        seen.add(result.contract)
+        ordered_results.append(result_map[result.contract])
+
+    return ordered_results
 
 
 def _execute_contract_with_timeout(
@@ -282,3 +485,44 @@ def _normalize_contract_status(status: str | None) -> str:
         return status
 
     return "completed"
+
+
+def _dedupe_preserving_order(values: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+
+    for value in values:
+        if value in seen:
+            continue
+
+        seen.add(value)
+        deduped.append(value)
+
+    return deduped
+
+
+def _resolve_advanced_created_at(scan: dict | None) -> datetime:
+    if scan is not None:
+        completed_at = scan.get("completed_at")
+        if completed_at is not None:
+            return completed_at
+
+        created_at = scan.get("created_at")
+        if created_at is not None:
+            return created_at
+
+    return datetime.now(timezone.utc)
+
+
+def create_execution_plan(
+    confidence: str,
+    raw_selected_contracts: list[str],
+    executed_contracts: list[str],
+    notes: list[str] | None = None,
+) -> AdvancedExecutionPlan:
+    return AdvancedExecutionPlan(
+        confidence=confidence,
+        raw_selected_contracts=_dedupe_preserving_order(raw_selected_contracts),
+        executed_contracts=_dedupe_preserving_order(executed_contracts),
+        notes=notes or [],
+    )

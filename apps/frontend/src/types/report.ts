@@ -5,6 +5,15 @@ export type CreateScanResponse = {
   status: string
 }
 
+export type ScanStepResponse = {
+  id: string
+  tool_name: string
+  status: string
+  duration_ms: number
+  raw_metadata: Record<string, unknown>
+  created_at: string
+}
+
 export type ReportSummaryResponse = {
   total: number
   critical: number
@@ -59,4 +68,46 @@ export type SeverityChartDatum = {
   severity: Severity
   label: string
   value: number
+}
+
+export type ScanDetailsResponse = {
+  scan_id: string
+  target: string
+  status: string
+  error_message: string | null
+  created_at: string
+  updated_at: string
+  started_at: string | null
+  completed_at: string | null
+  summary: ReportSummaryResponse
+  steps: ScanStepResponse[]
+  findings: EnrichedFindingResponse[]
+}
+
+export type ScanWorkflowEventType =
+  | "scan.started"
+  | "baseline.started"
+  | "baseline.completed"
+  | "planner.started"
+  | "planner.completed"
+  | "contracts.selected"
+  | "contract.started"
+  | "contract.completed"
+  | "contract.failed"
+  | "retry.started"
+  | "retry.completed"
+  | "replan.started"
+  | "replan.completed"
+  | "merge.started"
+  | "merge.completed"
+  | "summary.started"
+  | "summary.completed"
+  | "scan.completed"
+
+export type ScanWorkflowEvent = {
+  scan_id: string
+  type: ScanWorkflowEventType | string
+  message: string
+  timestamp: string
+  metadata: Record<string, unknown>
 }

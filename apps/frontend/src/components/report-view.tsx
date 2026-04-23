@@ -1,16 +1,11 @@
 "use client"
 
-import * as React from "react"
 import { ArrowLeft, CalendarClock, CircleAlert, ShieldCheck } from "lucide-react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 
 import type { EnrichedFindingResponse, EnrichedReportResponse, Severity } from "@/types/report"
 import { formatDateTime, getSeverityTone, severityLabel } from "@/utils/format"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
-import { Skeleton } from "@/components/ui/skeleton"
 
 type ReportViewProps = {
   report: EnrichedReportResponse
@@ -18,607 +13,528 @@ type ReportViewProps = {
 
 const ACTION_ORDER: Severity[] = ["critical", "high", "medium", "low", "info"]
 
+// All content uses this consistent left margin.
+// Header is full-bleed. Everything inside is left-aligned to this rail.
+const rail = "px-6 sm:px-10 lg:px-16"
+const innerMax = "max-w-3xl"
+
+function Mark() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 18 18" fill="none" aria-hidden>
+      <rect x="1" y="1" width="7" height="7" fill="currentColor" opacity="0.9" />
+      <rect x="10" y="1" width="7" height="7" fill="currentColor" opacity="0.35" />
+      <rect x="1" y="10" width="7" height="7" fill="currentColor" opacity="0.35" />
+      <rect x="10" y="10" width="7" height="7" fill="currentColor" opacity="0.7" />
+    </svg>
+  )
+}
+
 export function ReportView({ report }: ReportViewProps) {
-  const router = useRouter()
-  const [isRefreshing, startRefreshTransition] = React.useTransition()
-  const scanCompleted = report.status.toLowerCase() === "completed"
-
-  React.useEffect(() => {
-    if (scanCompleted) {
-      return
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      startRefreshTransition(() => {
-        router.refresh()
-      })
-    }, 3000)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [router, scanCompleted])
-
-  const severityItems = ACTION_ORDER.filter((severity) => report.summary[severity] > 0).map((severity) => ({
-    severity,
-    value: report.summary[severity],
+  const severityItems = ACTION_ORDER.filter((s) => report.summary[s] > 0).map((s) => ({
+    severity: s,
+    value: report.summary[s],
   }))
 
   const immediateSeverity: Severity =
     report.summary.critical > 0 ? "critical" : report.summary.high > 0 ? "high" : "medium"
 
-  const immediateIssues = report.top_issues.filter((issue) => issue.severity === immediateSeverity).slice(0, 5)
+  const immediateIssues = report.top_issues
+    .filter((i) => i.severity === immediateSeverity)
+    .slice(0, 5)
   const fallbackIssues =
     immediateIssues.length > 0
       ? immediateIssues
-      : report.top_issues.filter((issue) => ACTION_ORDER.indexOf(issue.severity) <= ACTION_ORDER.indexOf("medium")).slice(0, 5)
+      : report.top_issues
+          .filter((i) => ACTION_ORDER.indexOf(i.severity) <= ACTION_ORDER.indexOf("medium"))
+          .slice(0, 5)
   const primaryIssues = fallbackIssues.slice(0, 2)
   const secondaryIssues = fallbackIssues.slice(2)
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-7xl px-6 py-8 sm:px-10 lg:px-12">
-      <div className="space-y-32 pb-24">
-        <section className="relative flex min-h-[80vh] items-center overflow-hidden py-8">
-          <div className="pointer-events-none absolute inset-0 -z-10">
-            <div className="absolute left-[8%] top-[18%] h-72 w-72 rounded-full bg-chart-2/8 blur-3xl" />
-            <div className={`absolute right-[8%] top-1/2 h-96 w-96 -translate-y-1/2 rounded-full blur-3xl ${getDonutGlowClass(report.score)}`} />
-          </div>
+    <div className="min-h-screen bg-background text-foreground">
 
-          <div className="absolute inset-x-0 top-8 flex items-center justify-between">
-            <Button asChild variant="ghost" className="px-0 text-muted-foreground hover:text-foreground">
-              <Link href="/">
-                <ArrowLeft className="size-4" />
-                New scan
-              </Link>
-            </Button>
-            {isRefreshing ? (
-              <span className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Refreshing</span>
-            ) : null}
-          </div>
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <header className={`flex items-center justify-between py-5 ${rail}`}>
+        <div className="flex items-center gap-2.5">
+          <Mark />
+          <span className="text-sm font-semibold tracking-tight">SurfaceLab</span>
+        </div>
+        <Link
+          href="/"
+          className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground/50 transition-colors hover:text-foreground"
+        >
+          <ArrowLeft className="size-3" />
+          New scan
+        </Link>
+      </header>
 
-          <div className="mt-10 grid min-h-[calc(80vh-6rem)] items-center gap-16 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-            <div className="space-y-9">
-              <div className="space-y-3">
-                <p className="text-xs font-medium uppercase tracking-[0.28em] text-muted-foreground">
-                  Enriched report
-                </p>
-                <h1 className="font-heading text-balance text-5xl font-semibold tracking-tight sm:text-6xl lg:text-7xl">
-                  {report.target}
-                </h1>
-              </div>
+      {/* ── Cover — target name + score side by side ─────────────────────── */}
+      {/*
+        Full-bleed section. Left side: eyebrow + target name + counts + meta.
+        Right side: score — separated by a right-side border so it reads as
+        a distinct column, not a floating widget.
+      */}
+      <section className="border-t border-border/40">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px]">
 
-              <p className="max-w-4xl text-[1.35rem] font-medium leading-8 text-foreground sm:text-[1.55rem] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
-                {report.executive_summary ??
-                  "This report is available, but a generated executive summary was not returned. Review the immediate-action section and grouped findings below."}
-              </p>
-
-              <div className="rounded-2xl bg-card/55 px-5 py-4">
-                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted-foreground">
-                  {severityItems.length ? (
-                    severityItems.map(({ severity, value }) => {
-                      const tone = getSeverityTone(severity)
-                      return (
-                        <span key={severity} className="inline-flex items-center gap-2">
-                          <span className={`size-2 rounded-full ${tone.dot}`} />
-                          <span className="font-semibold text-foreground">{value}</span>
-                          <span>{severityLabel(severity)}</span>
-                        </span>
-                      )
-                    })
-                  ) : (
-                    <span className="text-muted-foreground">No findings recorded yet.</span>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted-foreground">
-                <span className="inline-flex items-center gap-2">
-                  {report.completed_at ? <ShieldCheck className="size-4" /> : <CalendarClock className="size-4" />}
-                  {report.completed_at
-                    ? `Completed ${formatDateTime(report.completed_at)}`
-                    : `Created ${formatDateTime(report.created_at)}`}
-                </span>
-                {getScanDuration(report.created_at, report.completed_at) ? (
-                  <span className="inline-flex items-center gap-2">
-                    <span className="text-border">·</span>
-                    Duration: {getScanDuration(report.created_at, report.completed_at)}
-                  </span>
-                ) : report.completed_at ? null : (
-                  <span className="inline-flex items-center gap-2">
-                    <CircleAlert className="size-4" />
-                    Scan still running
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="flex justify-center lg:justify-end">
-              <ScoreDonut score={report.score} />
-            </div>
-          </div>
-        </section>
-
-        <section className="flex min-h-[80vh] flex-col justify-center border-t border-border/70 pt-20">
-          <div className="space-y-3">
-            <p className="text-xs font-medium uppercase tracking-[0.26em] text-muted-foreground">
-              Immediate action
+          {/* Left — report identity */}
+          <div className={`py-12 lg:py-16 ${rail}`}>
+            <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.32em] text-muted-foreground/40">
+              Security report
             </p>
-            <h2 className="font-heading text-3xl font-semibold tracking-tight">
-              {report.summary.critical > 0 ? "Critical changes needed." : "Address these findings first."}
-            </h2>
-            <p className="max-w-3xl text-base leading-7 text-muted-foreground">
-              {report.summary.critical > 0
-                ? "Critical findings are present and should be remediated before lower-severity work."
-                : report.summary.high > 0
-                  ? "No critical findings were recorded. These high-severity issues are the most important next changes."
-                  : "No critical or high findings were recorded. These are still the strongest next actions to improve the target’s security posture."}
-            </p>
-          </div>
+            <h1 className="font-heading text-[2rem] font-semibold leading-tight tracking-tight sm:text-[2.5rem] lg:text-[3rem]">
+              {report.target}
+            </h1>
 
-          <div className="mt-14 space-y-14">
-            <div className="space-y-10">
-              {primaryIssues.length ? (
-                <div className="grid gap-6 lg:grid-cols-2">
-                  {primaryIssues.map((issue) => (
-                    <PriorityIssueRow key={`${issue.tool_name}-${issue.title}`} issue={issue} prominent />
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed border-border px-5 py-4 text-sm text-muted-foreground">
-                  No immediate-action findings were surfaced for this report.
-                </div>
-              )}
-
-              {secondaryIssues.length ? (
-                <div className="space-y-6">
-                  {secondaryIssues.map((issue, index) => (
-                    <div key={`${issue.tool_name}-${issue.title}`}>
-                      {index > 0 ? <Separator className="mb-6" /> : null}
-                      <PriorityIssueRow issue={issue} />
+            {severityItems.length > 0 && (
+              <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2">
+                {severityItems.map(({ severity, value }) => {
+                  const tone = getSeverityTone(severity)
+                  return (
+                    <div key={severity} className="flex items-center gap-2">
+                      <span className={`size-1.5 rounded-full ${tone.dot}`} />
+                      <span className="text-sm font-semibold tabular-nums leading-none">{value}</span>
+                      <span className="text-sm text-muted-foreground">{severityLabel(severity)}</span>
                     </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
+                  )
+                })}
+              </div>
+            )}
 
-            <div className="space-y-4">
-              <p className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">Quick wins</p>
-              {report.quick_wins.length ? (
-                <ol className="space-y-3">
-                  {report.quick_wins.slice(0, 4).map((item, index) => (
-                    <li key={item} className="grid grid-cols-[1.5rem_minmax(0,1fr)] items-start gap-3 text-base leading-7 text-foreground/88">
-                      <span className="pt-0.5 text-sm font-semibold text-muted-foreground">
-                        {index + 1}.
-                      </span>
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ol>
+            <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground/40">
+              {report.completed_at ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <ShieldCheck className="size-3" />
+                  Completed {formatDateTime(report.completed_at)}
+                </span>
               ) : (
-                <div className="rounded-2xl border border-dashed border-border px-5 py-4 text-sm text-muted-foreground">
-                  No quick wins were generated for this report.
-                </div>
+                <span className="inline-flex items-center gap-1.5">
+                  <CalendarClock className="size-3" />
+                  Created {formatDateTime(report.created_at)}
+                </span>
+              )}
+              {getScanDuration(report.created_at, report.completed_at) && (
+                <span>· {getScanDuration(report.created_at, report.completed_at)}</span>
+              )}
+              {!report.completed_at && (
+                <span className="inline-flex items-center gap-1.5 text-chart-1/80">
+                  <CircleAlert className="size-3" />
+                  Scan still running
+                </span>
               )}
             </div>
           </div>
+
+          {/* Right — score, vertically centred in its column */}
+          <div className="flex justify-center items-center border-t border-border/40 px-8 py-10 lg:border-l lg:border-t-0 lg:px-10">
+            <ScoreDisplay score={report.score} />
+          </div>
+        </div>
+      </section>
+
+      {/* ── Executive summary ────────────────────────────────────────────── */}
+      {report.executive_summary && (
+        <section className={`border-t border-border/40 py-10 ${rail}`}>
+          <p className={`text-[0.9375rem] leading-[1.9] text-foreground/75 ${innerMax}`}>
+            {report.executive_summary}
+          </p>
         </section>
+      )}
 
-        <section className="grid gap-10 border-t border-border/70 pt-20 lg:grid-cols-[168px_minmax(0,1fr)] lg:items-start">
-          <aside className="space-y-4 lg:sticky lg:top-8">
-            <div className="space-y-2">
-              <p className="text-xs font-medium uppercase tracking-[0.26em] text-muted-foreground">Deep dive</p>
-              <h2 className="font-heading text-2xl font-semibold tracking-tight">Documentation view</h2>
-            </div>
+      {/* ── Immediate action ─────────────────────────────────────────────── */}
+      <section className={`border-t border-border/40 py-12 lg:py-16 ${rail}`}>
+        <div className={innerMax}>
 
-            <nav className="space-y-1">
-              {report.categories.map((category) => (
-                <a
-                  key={category.slug}
-                  href={`#${category.slug}`}
-                  className="flex items-center justify-between rounded-xl px-3 py-2 text-sm text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                >
-                  <span className="truncate">{category.name}</span>
-                  <span className="ml-3 text-xs">{category.count}</span>
-                </a>
+          {/* Section label */}
+          <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.32em] text-muted-foreground/40">
+            Immediate action
+          </p>
+          <h2 className="font-heading text-xl font-semibold tracking-tight">
+            {report.summary.critical > 0
+              ? "Critical changes needed."
+              : report.summary.high > 0
+                ? "Address these first."
+                : "Strongest next actions."}
+          </h2>
+          <p className="mt-2 text-sm leading-[1.8] text-muted-foreground">
+            {report.summary.critical > 0
+              ? "Critical findings present. Remediate these before lower-severity work."
+              : report.summary.high > 0
+                ? "No critical findings. These high-severity issues are the most important next changes."
+                : "No critical or high findings. These are the strongest remaining actions."}
+          </p>
+
+          {/* Primary findings */}
+          <div className="mt-10 space-y-10">
+            {primaryIssues.length > 0 ? (
+              primaryIssues.map((issue) => (
+                <PrimaryIssue key={`${issue.tool_name}-${issue.title}`} issue={issue} />
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No immediate-action findings were surfaced for this report.
+              </p>
+            )}
+          </div>
+
+          {/* Secondary findings */}
+          {secondaryIssues.length > 0 && (
+            <div className="mt-10 space-y-8 border-t border-border/30 pt-10">
+              {secondaryIssues.map((issue) => (
+                <SecondaryIssue key={`${issue.tool_name}-${issue.title}`} issue={issue} />
               ))}
-            </nav>
-          </aside>
+            </div>
+          )}
 
-          <div className="space-y-16 lg:border-l lg:border-border/70 lg:pl-10">
-            {report.categories.map((category, categoryIndex) => (
-              <section key={category.slug} id={category.slug} className="scroll-mt-8">
-                {categoryIndex > 0 ? <Separator className="mb-14" /> : null}
+          {/* Quick wins */}
+          {report.quick_wins.length > 0 && (
+            <div className="mt-10 border-t border-border/30 pt-10">
+              <p className="mb-5 text-[10px] font-semibold uppercase tracking-[0.32em] text-muted-foreground/40">
+                Quick wins
+              </p>
+              <ol className="space-y-3">
+                {report.quick_wins.slice(0, 4).map((item, i) => (
+                  <li key={item} className="grid grid-cols-[1.5rem_1fr] gap-x-3 text-sm leading-[1.8]">
+                    <span className="pt-px text-right font-mono text-xs tabular-nums text-muted-foreground/30">
+                      {i + 1}.
+                    </span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+        </div>
+      </section>
 
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <h3 className="font-heading text-3xl font-semibold tracking-tight">{category.name}</h3>
-                    <CategoryMetaBadge count={category.count} severity={category.highest_severity} />
+      {/* ── Deep dive ────────────────────────────────────────────────────── */}
+      {/*
+        Two-column layout: narrow sticky sidebar on the left for navigation,
+        findings content on the right. Both columns share the same `rail` left
+        edge so everything aligns to the same vertical line as sections above.
+      */}
+      <section className={`border-t border-border/40 pb-28 ${rail}`}>
+        <div className="grid grid-cols-1 gap-0 pt-0 lg:grid-cols-[160px_1fr] lg:gap-12">
+
+          {/* Sidebar — sticky nav */}
+          <div className="hidden pt-12 lg:block">
+            <div className="sticky top-8">
+              <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.32em] text-muted-foreground/35">
+                Categories
+              </p>
+              <nav className="space-y-0.5">
+                {report.categories.map((cat) => (
+                  <a
+                    key={cat.slug}
+                    href={`#${cat.slug}`}
+                    className="flex items-center justify-between py-1.5 text-[13px] text-muted-foreground/50 transition-colors hover:text-foreground"
+                  >
+                    <span className="truncate">{cat.name}</span>
+                    <span className="ml-3 shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground/30">
+                      {cat.count}
+                    </span>
+                  </a>
+                ))}
+              </nav>
+            </div>
+          </div>
+
+          {/* Findings content */}
+          <div className={`${innerMax} divide-y divide-border/30`}>
+            {report.categories.map((category) => (
+              <div key={category.slug} id={category.slug} className="scroll-mt-8 py-12">
+
+                <div className="mb-7">
+                  <div className="flex flex-wrap items-baseline gap-2.5">
+                    <h3 className="font-heading text-lg font-semibold tracking-tight">
+                      {category.name}
+                    </h3>
+                    <CategoryTag count={category.count} severity={category.highest_severity} />
                   </div>
-                  <p className="text-sm leading-7 text-muted-foreground">
+                  <p className="mt-2 text-sm leading-[1.8] text-muted-foreground">
                     {getCategoryDescription(category.name)}
                   </p>
                 </div>
 
                 {isInformationalCategory(category.name) ? (
-                  <div className="mt-8 divide-y divide-border/60 rounded-2xl bg-card/25 px-5">
+                  <div className="divide-y divide-border/25">
                     {category.findings.map((finding) => (
-                      <FingerprintFindingRow
+                      <FingerprintRow
                         key={`${category.slug}-${finding.title}-${finding.tool_name}`}
                         finding={finding}
                       />
                     ))}
                   </div>
                 ) : (
-                  <div className="mt-8 space-y-10">
-                    {category.findings.map((finding, index) => (
-                      <article key={`${category.slug}-${finding.title}-${finding.tool_name}`} className="space-y-4">
-                        {index > 0 ? <Separator className="mb-10" /> : null}
-                        <FindingBlock finding={finding} />
-                      </article>
+                  <div className="divide-y divide-border/25">
+                    {category.findings.map((finding) => (
+                      <FindingRow
+                        key={`${category.slug}-${finding.title}-${finding.tool_name}`}
+                        finding={finding}
+                      />
                     ))}
                   </div>
                 )}
-              </section>
+              </div>
             ))}
           </div>
-        </section>
-      </div>
-    </main>
+        </div>
+      </section>
+    </div>
   )
 }
 
 export function ReportErrorView({ message }: { message: string }) {
   return (
-    <main className="mx-auto min-h-screen w-full max-w-7xl px-6 py-10 sm:px-10 lg:px-12">
-      <div className="rounded-3xl bg-card px-6 py-6">
-        <h1 className="text-xl font-semibold">Unable to load report</h1>
-        <p className="mt-2 text-sm leading-7 text-muted-foreground">{message}</p>
-        <Button asChild variant="ghost" className="mt-6 px-0">
-          <Link href="/">
-            <ArrowLeft className="size-4" />
-            Back to dashboard
+    <div className="min-h-screen bg-background text-foreground">
+      <header className={`flex items-center justify-between py-5 ${rail}`}>
+        <div className="flex items-center gap-2.5">
+          <Mark />
+          <span className="text-sm font-semibold tracking-tight">SurfaceLab</span>
+        </div>
+      </header>
+      <div className={`flex min-h-[calc(100vh-60px)] flex-col justify-center ${rail}`}>
+        <div className="max-w-md space-y-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-muted-foreground/40">
+            Error
+          </p>
+          <h1 className="font-heading text-2xl font-semibold tracking-tight">
+            Unable to load report
+          </h1>
+          <p className="text-sm leading-[1.8] text-muted-foreground">{message}</p>
+          <Link
+            href="/"
+            className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground/50 transition-colors hover:text-foreground"
+          >
+            <ArrowLeft className="size-3" />
+            Back to home
           </Link>
-        </Button>
+        </div>
       </div>
-    </main>
+    </div>
   )
 }
 
-function getRiskLabel(score: number) {
-  if (score >= 80) {
-    return "Low risk"
-  }
+// ── Score ─────────────────────────────────────────────────────────────────────
 
-  if (score >= 60) {
-    return "Moderate risk"
-  }
-
-  return "High risk"
-}
-
-function ScoreDonut({ score }: { score: number }) {
-  const radius = 88
-  const strokeWidth = 14
-  const circumference = 2 * Math.PI * radius
-  const progress = Math.max(0, Math.min(100, score))
-  const dashOffset = circumference - (progress / 100) * circumference
+function ScoreDisplay({ score }: { score: number }) {
+  const r = 42
+  const sw = 5.5
+  const circ = 2 * Math.PI * r
+  const offset = circ - (Math.max(0, Math.min(100, score)) / 100) * circ
   const ringColor = getScoreRingColor(score)
   const labelColor = getScoreLabelColor(score)
 
   return (
-    <div className="relative flex h-[300px] w-[300px] items-center justify-center sm:h-[340px] sm:w-[340px]">
-      <svg viewBox="0 0 220 220" className="h-full w-full -rotate-90">
-        <circle
-          cx="110"
-          cy="110"
-          r={radius}
-          fill="none"
-          stroke="var(--border)"
-          strokeOpacity="0.5"
-          strokeWidth={strokeWidth}
-        />
-        <circle
-          cx="110"
-          cy="110"
-          r={radius}
-          fill="none"
-          stroke={ringColor}
-          strokeLinecap="round"
-          strokeWidth={strokeWidth}
-          strokeDasharray={circumference}
-          strokeDashoffset={dashOffset}
-          strokeOpacity="0.92"
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-        <div className="flex items-end gap-1">
-          <span className="text-6xl font-semibold tracking-[-0.04em] sm:text-7xl">{score}</span>
-          <span className="pb-3 text-base text-muted-foreground">/100</span>
+    <div className="flex flex-col items-center justify-center gap-3">
+      <div className="relative flex size-40 items-center justify-center">
+        <svg viewBox="0 0 88 88" className="h-full w-full -rotate-90">
+          <circle cx="44" cy="44" r={r} fill="none" stroke="var(--border)" strokeOpacity="0.4" strokeWidth={sw} />
+          <circle
+            cx="44" cy="44" r={r} fill="none"
+            stroke={ringColor} strokeLinecap="round" strokeWidth={sw}
+            strokeDasharray={circ} strokeDashoffset={offset}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-6xl font-semibold tabular-nums leading-none">{score}</span>
         </div>
-        <p className={`mt-3 text-base font-medium ${labelColor}`}>{getRiskLabel(score)}</p>
+      </div>
+      <div>
+        <p className={`text-xs font-semibold ${labelColor}`}>{getRiskLabel(score)}</p>
+        <p className="text-[10px] text-muted-foreground/40">Security score</p>
       </div>
     </div>
   )
 }
 
-function PriorityIssueRow({
-  issue,
-  prominent = false,
-}: {
-  issue: EnrichedFindingResponse
-  prominent?: boolean
-}) {
-  const tone = getSeverityTone(issue.severity)
+// ── Issue components ──────────────────────────────────────────────────────────
 
+function PrimaryIssue({ issue }: { issue: EnrichedFindingResponse }) {
+  const tone = getSeverityTone(issue.severity)
   return (
-    <article
-      className={prominent ? "space-y-3 rounded-3xl bg-card/45 px-6 py-6" : "space-y-3 py-2"}
-    >
-      <div className="flex flex-wrap items-center gap-3">
-        <Badge
-          className={`${tone.badge} border-0 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]`}
-        >
+    <article>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <span className={`size-1.5 rounded-full ${tone.dot}`} />
+        <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground/60">
           {severityLabel(issue.severity)}
-        </Badge>
-        <span className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{issue.tool_name}</span>
+        </span>
+        <span className="text-muted-foreground/25">·</span>
+        <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/40">
+          {issue.tool_name}
+        </span>
       </div>
-      <div className="space-y-2">
-        <h3 className={prominent ? "text-2xl font-semibold tracking-tight" : "text-xl font-semibold tracking-tight"}>
-          {issue.title}
-        </h3>
-        <p className="text-sm leading-7 text-muted-foreground">{issue.evidence}</p>
-        {issue.remediation_summary ? <p className="text-sm leading-7">{issue.remediation_summary}</p> : null}
-      </div>
+      <h3 className="font-heading text-[1.125rem] font-semibold leading-snug tracking-tight">
+        {issue.title}
+      </h3>
+      <p className="mt-2 text-sm leading-[1.85] text-muted-foreground">{issue.evidence}</p>
+      {issue.remediation_summary && (
+        <p className="mt-2 text-sm leading-[1.85] text-foreground/65">{issue.remediation_summary}</p>
+      )}
     </article>
   )
 }
 
-function FindingBlock({ finding }: { finding: EnrichedFindingResponse }) {
-  const tone = getSeverityTone(finding.severity)
-
+function SecondaryIssue({ issue }: { issue: EnrichedFindingResponse }) {
+  const tone = getSeverityTone(issue.severity)
   return (
-    <div className="space-y-4 rounded-3xl border border-border/60 bg-card/30 px-6 py-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <Badge
-          className={`${tone.badge} border-0 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]`}
-        >
-          {severityLabel(finding.severity)}
-        </Badge>
-        <span className="text-xs uppercase tracking-[0.18em] text-muted-foreground">{finding.tool_name}</span>
-        <span className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-          confidence {finding.confidence}
+    <article>
+      <div className="mb-1.5 flex flex-wrap items-center gap-2">
+        <span className={`size-1.5 rounded-full ${tone.dot}`} />
+        <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground/60">
+          {severityLabel(issue.severity)}
+        </span>
+        <span className="text-muted-foreground/25">·</span>
+        <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/40">
+          {issue.tool_name}
         </span>
       </div>
+      <h3 className="text-sm font-semibold leading-snug">{issue.title}</h3>
+      <p className="mt-1.5 text-sm leading-[1.85] text-muted-foreground">{issue.evidence}</p>
+      {issue.remediation_summary && (
+        <p className="mt-1.5 text-sm leading-[1.85] text-foreground/65">{issue.remediation_summary}</p>
+      )}
+    </article>
+  )
+}
 
-      <div className="space-y-3">
-        <h4 className="text-xl font-semibold tracking-tight">{finding.title}</h4>
-        <p className="text-sm leading-7 text-muted-foreground">{finding.evidence}</p>
-        {finding.remediation_summary ? (
-          <p className="text-sm leading-7">{finding.remediation_summary}</p>
-        ) : null}
-      </div>
-
-      {finding.source_references.length ? (
-        <div className="flex flex-wrap gap-x-4 gap-y-2">
-          {finding.source_references.map((reference) => (
-            <span key={reference} className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-              {reference}
+function FindingRow({ finding }: { finding: EnrichedFindingResponse }) {
+  const tone = getSeverityTone(finding.severity)
+  return (
+    <div className="py-7">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <span className={`size-1.5 rounded-full ${tone.dot}`} />
+        <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground/60">
+          {severityLabel(finding.severity)}
+        </span>
+        <span className="text-muted-foreground/25">·</span>
+        <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/40">
+          {finding.tool_name}
+        </span>
+        {finding.confidence && (
+          <>
+            <span className="text-muted-foreground/25">·</span>
+            <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/35">
+              {finding.confidence}
             </span>
+          </>
+        )}
+      </div>
+      <h4 className="text-sm font-semibold leading-snug">{finding.title}</h4>
+      <p className="mt-1.5 text-sm leading-[1.85] text-muted-foreground">{finding.evidence}</p>
+      {finding.remediation_summary && (
+        <p className="mt-1.5 text-sm leading-[1.85] text-foreground/65">{finding.remediation_summary}</p>
+      )}
+      {finding.source_references.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1">
+          {finding.source_references.map((r) => (
+            <span key={r} className="font-mono text-[10px] text-muted-foreground/30">{r}</span>
           ))}
         </div>
-      ) : null}
+      )}
     </div>
   )
 }
 
-function FingerprintFindingRow({ finding }: { finding: EnrichedFindingResponse }) {
+function FingerprintRow({ finding }: { finding: EnrichedFindingResponse }) {
   const label = getFingerprintLabel(finding)
   const value = getFingerprintValue(finding)
-
   return (
-    <div className="grid gap-2 py-4 sm:grid-cols-[120px_minmax(0,1fr)] sm:items-start sm:gap-5">
-      <dt className="text-sm font-medium text-foreground">{label}</dt>
-      <dd className="space-y-2">
-        <p className="text-sm leading-7 text-muted-foreground">{value}</p>
-        {finding.source_references.length ? (
-          <div className="flex flex-wrap gap-x-4 gap-y-2">
-            {finding.source_references.map((reference) => (
-              <span key={reference} className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                {reference}
-              </span>
+    <div className="grid gap-x-8 gap-y-1 py-4 sm:grid-cols-[100px_1fr] sm:items-baseline">
+      <dt className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground/40">
+        {label}
+      </dt>
+      <dd>
+        <p className="text-sm text-muted-foreground">{value}</p>
+        {finding.source_references.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+            {finding.source_references.map((r) => (
+              <span key={r} className="font-mono text-[10px] text-muted-foreground/30">{r}</span>
             ))}
           </div>
-        ) : null}
+        )}
       </dd>
     </div>
   )
 }
 
-function CategoryMetaBadge({
-  count,
-  severity,
-}: {
-  count: number
-  severity: Severity
-}) {
+function CategoryTag({ count, severity }: { count: number; severity: Severity }) {
   const tone = getSeverityTone(severity)
-
   return (
-    <div className="flex items-center gap-3 text-sm text-muted-foreground">
-      <Badge
-        className={`${tone.badge} border-0 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]`}
-      >
+    <div className="flex items-center gap-2">
+      <Badge className={`${tone.badge} border-0 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.15em]`}>
         {severityLabel(severity)}
       </Badge>
-      <span>
+      <span className="text-[11px] text-muted-foreground/40">
         {count} finding{count === 1 ? "" : "s"}
       </span>
     </div>
   )
 }
 
-function getCategoryDescription(name: string) {
-  const descriptions: Record<string, string> = {
-    "HTTP Headers":
-      "Response header findings that affect transport hardening, browser isolation, and baseline application security policy.",
-    "Public Exposure":
-      "Publicly accessible files and deployment artifacts that increase the exposed surface area of the target.",
-    "Sensitive File Exposure":
-      "Direct exposure of sensitive files or artifacts that should not be publicly retrievable.",
-    "Technology Fingerprint":
-      "Observed infrastructure and framework signals that help explain the stack but are not necessarily vulnerabilities on their own.",
-    Other:
-      "Additional findings that did not map cleanly into the primary report sections but still contribute to the overall review.",
-  }
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-  return descriptions[name] ?? "Findings grouped by the report pipeline for deeper technical review and remediation planning."
+function getRiskLabel(score: number) {
+  if (score >= 80) return "Low risk"
+  if (score >= 60) return "Moderate risk"
+  return "High risk"
+}
+
+function getScoreRingColor(score: number) {
+  if (score >= 80) return "var(--chart-5)"
+  if (score >= 60) return "var(--chart-1)"
+  return "var(--destructive)"
+}
+
+function getScoreLabelColor(score: number) {
+  if (score >= 80) return "text-chart-5"
+  if (score >= 60) return "text-chart-1"
+  return "text-destructive"
+}
+
+function getScanDuration(createdAt: string, completedAt: string | null) {
+  if (!completedAt) return null
+  const d = new Date(completedAt).getTime() - new Date(createdAt).getTime()
+  if (Number.isNaN(d) || d <= 0) return null
+  const s = Math.round(d / 1000)
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  const rem = s % 60
+  return rem === 0 ? `${m}m` : `${m}m ${rem}s`
+}
+
+function getCategoryDescription(name: string) {
+  const map: Record<string, string> = {
+    "HTTP Headers": "Response header findings affecting transport hardening, browser isolation, and baseline security policy.",
+    "Public Exposure": "Publicly accessible files and deployment artifacts that increase the exposed surface area.",
+    "Sensitive File Exposure": "Direct exposure of sensitive files or artifacts that should not be publicly retrievable.",
+    "Technology Fingerprint": "Observed infrastructure and framework signals. Informational — not vulnerabilities on their own.",
+    Other: "Additional findings that did not map cleanly into the primary report sections.",
+  }
+  return map[name] ?? "Findings grouped for deeper technical review and remediation planning."
 }
 
 function isInformationalCategory(name: string) {
   return name === "Technology Fingerprint" || name === "Other"
 }
 
-function getScoreRingColor(score: number) {
-  if (score >= 80) {
-    return "var(--chart-5)"
-  }
-
-  if (score >= 60) {
-    return "var(--chart-1)"
-  }
-
-  return "var(--destructive)"
-}
-
-function getScoreLabelColor(score: number) {
-  if (score >= 80) {
-    return "text-chart-5"
-  }
-
-  if (score >= 60) {
-    return "text-chart-1"
-  }
-
-  return "text-destructive"
-}
-
-function getDonutGlowClass(score: number) {
-  if (score >= 80) {
-    return "bg-chart-5/10"
-  }
-
-  if (score >= 60) {
-    return "bg-chart-1/10"
-  }
-
-  return "bg-destructive/10"
-}
-
-function getScanDuration(createdAt: string, completedAt: string | null) {
-  if (!completedAt) {
-    return null
-  }
-
-  const created = new Date(createdAt).getTime()
-  const completed = new Date(completedAt).getTime()
-
-  if (Number.isNaN(created) || Number.isNaN(completed) || completed <= created) {
-    return null
-  }
-
-  const totalSeconds = Math.round((completed - created) / 1000)
-
-  if (totalSeconds < 60) {
-    return `${totalSeconds}s`
-  }
-
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-
-  if (seconds === 0) {
-    return `${minutes}m`
-  }
-
-  return `${minutes}m ${seconds}s`
-}
-
 function getFingerprintLabel(finding: EnrichedFindingResponse) {
-  const source = `${finding.type} ${finding.category} ${finding.title}`.toLowerCase()
-
-  if (source.includes("framework")) {
-    return "Framework"
-  }
-
-  if (source.includes("server")) {
-    return "Server"
-  }
-
-  if (source.includes("edge") || source.includes("cdn")) {
-    return "CDN"
-  }
-
-  if (source.includes("generator")) {
-    return "Generator"
-  }
-
+  const src = `${finding.type} ${finding.category} ${finding.title}`.toLowerCase()
+  if (src.includes("framework")) return "Framework"
+  if (src.includes("server")) return "Server"
+  if (src.includes("edge") || src.includes("cdn")) return "CDN"
+  if (src.includes("generator")) return "Generator"
   return finding.title
 }
 
 function getFingerprintValue(finding: EnrichedFindingResponse) {
-  const detailValues = Object.values(finding.details ?? {}).filter((value): value is string => typeof value === "string" && value.trim().length > 0)
-
-  if (detailValues.length) {
-    return detailValues.join(" ").trim()
-  }
-
+  const vals = Object.values(finding.details ?? {}).filter(
+    (v): v is string => typeof v === "string" && v.trim().length > 0,
+  )
+  if (vals.length) return vals.join(" ").trim()
   return finding.evidence
     .replace(/^detected\s+/i, "")
     .replace(/^(framework|server technology|cdn or edge provider|generator)\s*/i, "")
     .replace(/^[:\-]\s*/, "")
     .trim()
-}
-
-export function ReportSkeleton() {
-  return (
-    <main className="mx-auto min-h-screen w-full max-w-7xl px-6 py-8 sm:px-10 lg:px-12">
-      <div className="space-y-24">
-        <div className="flex min-h-[80vh] flex-col justify-center gap-12 lg:flex-row lg:items-center lg:justify-between">
-          <div className="space-y-5">
-            <Skeleton className="h-4 w-28 rounded-full" />
-            <Skeleton className="h-16 w-2/3 rounded-2xl" />
-            <Skeleton className="h-20 w-full rounded-3xl" />
-            <Skeleton className="h-6 w-3/4 rounded-xl" />
-            <Skeleton className="h-6 w-1/2 rounded-xl" />
-          </div>
-          <Skeleton className="h-[300px] w-[300px] rounded-full sm:h-[340px] sm:w-[340px]" />
-        </div>
-
-        <div className="min-h-[80vh] space-y-10">
-          <div className="space-y-3">
-            <Skeleton className="h-4 w-32 rounded-full" />
-            <Skeleton className="h-10 w-4/5 rounded-2xl" />
-            <Skeleton className="h-16 w-full rounded-3xl" />
-          </div>
-          <div className="space-y-5">
-            {Array.from({ length: 3 }).map((_, index) => (
-              <Skeleton key={index} className="h-40 rounded-3xl" />
-            ))}
-          </div>
-        </div>
-
-        <div className="grid gap-10 lg:grid-cols-[220px_minmax(0,1fr)]">
-          <div className="space-y-3">
-            <Skeleton className="h-4 w-24 rounded-full" />
-            <Skeleton className="h-10 w-32 rounded-2xl" />
-            {Array.from({ length: 4 }).map((_, index) => (
-              <Skeleton key={index} className="h-10 rounded-xl" />
-            ))}
-          </div>
-          <div className="space-y-8">
-            {Array.from({ length: 3 }).map((_, index) => (
-              <Skeleton key={index} className="h-52 rounded-3xl" />
-            ))}
-          </div>
-        </div>
-      </div>
-    </main>
-  )
 }

@@ -1,6 +1,6 @@
 import "server-only"
 
-import type { CreateScanResponse, EnrichedReportResponse } from "@/types/report"
+import type { CreateScanResponse, EnrichedReportResponse, ScanDetailsResponse } from "@/types/report"
 
 const DEFAULT_TIMEOUT_MS = 10_000
 
@@ -27,6 +27,18 @@ function getTimeoutMs(): number {
   return parsedValue
 }
 
+function resolveTimeoutMs(timeoutMs?: number): number {
+  if (timeoutMs == null) {
+    return getTimeoutMs()
+  }
+
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error("timeoutMs must be a positive number")
+  }
+
+  return Math.floor(timeoutMs)
+}
+
 function getBaseUrl(): string {
   return getRequiredEnv("ORCHESTRATOR_BASE_URL").replace(/\/+$/, "")
 }
@@ -41,7 +53,7 @@ export class OrchestratorRequestError extends Error {
   }
 }
 
-async function orchestratorRequest<T>(path: string, init?: RequestInit): Promise<T> {
+async function orchestratorRequest<T>(path: string, init?: RequestInit, timeoutMs?: number): Promise<T> {
   const headers = new Headers(init?.headers)
   headers.set("x-api-key", getRequiredEnv("ORCHESTRATOR_API_KEY"))
   headers.set("accept", "application/json")
@@ -53,7 +65,7 @@ async function orchestratorRequest<T>(path: string, init?: RequestInit): Promise
     ...init,
     headers,
     cache: "no-store",
-    signal: AbortSignal.timeout(getTimeoutMs()),
+    signal: AbortSignal.timeout(resolveTimeoutMs(timeoutMs)),
   })
 
   if (!response.ok) {
@@ -77,6 +89,10 @@ export function createScan(target: string) {
   })
 }
 
-export function getEnrichedReport(scanId: string) {
-  return orchestratorRequest<EnrichedReportResponse>(`/scans/${scanId}/report/enriched`)
+export function getEnrichedReport(scanId: string, timeoutMs?: number) {
+  return orchestratorRequest<EnrichedReportResponse>(`/scans/${scanId}/report/enriched`, undefined, timeoutMs)
+}
+
+export function getScanDetails(scanId: string) {
+  return orchestratorRequest<ScanDetailsResponse>(`/scans/${scanId}`)
 }

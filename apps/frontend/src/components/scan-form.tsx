@@ -5,13 +5,12 @@ import { ArrowRight, LoaderCircle } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 import { useCreateScan } from "@/hooks/use-create-scan"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 
 export function ScanForm() {
   const router = useRouter()
   const [target, setTarget] = React.useState("")
   const [error, setError] = React.useState<string | null>(null)
+  const [focused, setFocused] = React.useState(false)
   const createScan = useCreateScan()
 
   function handleSubmit(event: React.SyntheticEvent<HTMLFormElement>) {
@@ -39,51 +38,63 @@ export function ScanForm() {
 
   return (
     <div className="space-y-4">
-      <form
-        onSubmit={handleSubmit}
-        className="rounded-[1.75rem] border border-border bg-card/80 p-3 shadow-sm transition focus-within:border-ring"
-      >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2">
-            <span className="shrink-0 text-sm font-medium text-muted-foreground">https://</span>
-            <Input
+      <form onSubmit={handleSubmit}>
+        {/* Input row */}
+        <div
+          className={`flex items-stretch border-b transition-colors duration-150 ${
+            focused ? "border-foreground/70" : "border-border/70"
+          }`}
+        >
+          <div className="flex flex-1 items-center gap-2 py-4">
+            <span className="shrink-0 select-none text-sm font-medium text-muted-foreground/60">
+              https://
+            </span>
+            <input
               id="target"
+              type="text"
               placeholder="example.com"
               value={target}
+              autoComplete="off"
+              spellCheck={false}
               onChange={(e) => {
                 setTarget(normalizeTargetInput(e.target.value))
                 setError(null)
               }}
-              className="h-auto border-0 bg-transparent px-0 text-base shadow-none focus-visible:ring-0"
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              className="flex-1 bg-transparent text-base text-foreground placeholder:text-muted-foreground/30 focus:outline-none"
             />
           </div>
-          <Button
+
+          <button
             type="submit"
             disabled={createScan.isExecuting}
-            className="h-12 shrink-0 rounded-[1rem] px-5 text-sm font-medium"
+            className="group ml-4 flex shrink-0 items-center gap-2 py-4 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
           >
             {createScan.isExecuting ? (
               <>
-                <LoaderCircle className="size-4 animate-spin" />
-                Starting scan
+                <LoaderCircle className="size-3.5 animate-spin" />
+                <span>Starting</span>
               </>
             ) : (
               <>
-                Run scan
-                <ArrowRight className="size-4" />
+                <span>Run scan</span>
+                <ArrowRight className="size-3.5 transition-transform duration-150 group-hover:translate-x-0.5" />
               </>
             )}
-          </Button>
+          </button>
         </div>
       </form>
 
-      {displayError ? (
-        <p className="text-sm text-destructive">{displayError}</p>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          The report opens immediately and refreshes while the scan is still completing.
-        </p>
-      )}
+      <div className="min-h-5">
+        {displayError ? (
+          <p className="text-xs text-destructive">{displayError}</p>
+        ) : (
+          <p className="text-xs text-muted-foreground/50">
+            Report opens immediately with a live workflow monitor while the scan runs.
+          </p>
+        )}
+      </div>
     </div>
   )
 }
