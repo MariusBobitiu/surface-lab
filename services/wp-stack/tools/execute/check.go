@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	toolName     = "wordpress.v1.run_stack"
-	httpTimeout  = 8 * time.Second
-	maxBodyBytes = 512 * 1024
+	toolName        = "wordpress.v1.run_stack"
+	httpTimeout     = 8 * time.Second
+	maxBodyBytes    = 512 * 1024
+	maxResearchCVEs = 4
 )
 
 var (
@@ -35,6 +36,16 @@ type endpointCheck struct {
 type endpointResult struct {
 	Path   string
 	Status int
+}
+
+type specialistContext struct {
+	matchedSignals         []string
+	baselineSignals        []map[string]interface{}
+	baselineFindings       []map[string]interface{}
+	technologySummary      map[string]interface{}
+	vulnerabilityResearch  []map[string]interface{}
+	requestedWPVersion     string
+	researchDerivedVersion string
 }
 
 func Run(ctx context.Context, target string, input map[string]interface{}) models.RunStackResult {
@@ -58,17 +69,14 @@ func Run(ctx context.Context, target string, input map[string]interface{}) model
 	pathClient := utils.NewHTTPClientNoRedirect(httpTimeout)
 	findings := make([]models.Finding, 0)
 	endpointResults := make([]map[string]interface{}, 0)
+	context := parseSpecialistContext(input)
 
 	rootResponse, rootErr := fetchRoot(ctx, rootClient, rootURL)
 	if rootErr == nil {
 		findings = append(findings, detectRootFindings(rootResponse)...)
 	}
 
-	for _, check := range []endpointCheck{
-		{path: "/wp-login.php", name: "wp-login"},
-		{path: "/xmlrpc.php", name: "xmlrpc"},
-		{path: "/readme.html", name: "readme"},
-	} {
+	for _, check := range collectEndpointChecks(context) {
 		result, checkErr := checkEndpoint(ctx, pathClient, rootURL, check.path)
 		if checkErr != nil {
 			endpointResults = append(endpointResults, map[string]interface{}{
@@ -90,9 +98,21 @@ func Run(ctx context.Context, target string, input map[string]interface{}) model
 		status = "failed"
 	}
 
+	detectedWPVersion := firstNonEmpty(context.requestedWPVersion, context.researchDerivedVersion, detectWPVersionFromRoot(rootResponse))
+	researchFindings, researchMetadata := findingsFromVulnerabilityResearch(context.vulnerabilityResearch, detectedWPVersion)
+	findings = append(findings, researchFindings...)
+
 	metadata := map[string]interface{}{
-		"request_metadata": input,
-		"endpoint_checks":  endpointResults,
+		"request_metadata":           input,
+		"endpoint_checks":            endpointResults,
+		"detected_wordpress_version": detectedWPVersion,
+		"vulnerability_research":     researchMetadata,
+		"context": map[string]interface{}{
+			"matched_signals":                context.matchedSignals,
+			"baseline_signal_count":          len(context.baselineSignals),
+			"baseline_finding_count":         len(context.baselineFindings),
+			"vulnerability_research_queries": len(context.vulnerabilityResearch),
+		},
 	}
 	if rootResponse != nil {
 		metadata["root_status"] = rootResponse.StatusCode
@@ -315,6 +335,36 @@ func detectEndpointFindings(name string, result *endpointResult) []models.Findin
 				},
 			}}
 		}
+	case "wp-json":
+		if result.Status == http.StatusOK {
+			return []models.Finding{{
+				Type:       "surface",
+				Category:   "wordpress_surface",
+				Title:      "WordPress REST API endpoint is exposed",
+				Severity:   "info",
+				Confidence: "high",
+				Evidence:   fmt.Sprintf("%s returned HTTP %d", result.Path, result.Status),
+				Details: map[string]interface{}{
+					"path":   result.Path,
+					"status": result.Status,
+				},
+			}}
+		}
+	case "wp-admin":
+		if result.Status == http.StatusOK || result.Status == http.StatusFound || result.Status == http.StatusForbidden {
+			return []models.Finding{{
+				Type:       "surface",
+				Category:   "wordpress_surface",
+				Title:      "WordPress admin endpoint is exposed",
+				Severity:   "info",
+				Confidence: endpointConfidence(result.Status),
+				Evidence:   fmt.Sprintf("%s returned HTTP %d", result.Path, result.Status),
+				Details: map[string]interface{}{
+					"path":   result.Path,
+					"status": result.Status,
+				},
+			}}
+		}
 	}
 
 	return nil
@@ -408,4 +458,299 @@ func errorString(err error, status string) string {
 	}
 
 	return err.Error()
+}
+
+func parseSpecialistContext(input map[string]interface{}) specialistContext {
+	ctx := specialistContext{
+		matchedSignals:        stringList(input["matched_signals"]),
+		baselineSignals:       mapList(input["baseline_signals"]),
+		baselineFindings:      mapList(input["baseline_findings"]),
+		technologySummary:     mapValue(input["technology_summary"]),
+		vulnerabilityResearch: mapList(input["vulnerability_research"]),
+	}
+
+	ctx.requestedWPVersion = firstNonEmpty(
+		normalizeVersion(stringValue(input["wordpress_version"])),
+		extractRequestedWPVersion(input),
+		findWPVersionInTechnologySummary(ctx.technologySummary),
+	)
+	ctx.researchDerivedVersion = findWPVersionInResearch(ctx.vulnerabilityResearch)
+
+	return ctx
+}
+
+func collectEndpointChecks(ctx specialistContext) []endpointCheck {
+	checks := []endpointCheck{
+		{path: "/wp-login.php", name: "wp-login"},
+		{path: "/xmlrpc.php", name: "xmlrpc"},
+		{path: "/readme.html", name: "readme"},
+	}
+
+	if hasWordPressSignalHints(ctx) {
+		checks = append(checks,
+			endpointCheck{path: "/wp-json/", name: "wp-json"},
+			endpointCheck{path: "/wp-admin/", name: "wp-admin"},
+		)
+	}
+
+	return dedupeEndpointChecks(checks)
+}
+
+func dedupeEndpointChecks(checks []endpointCheck) []endpointCheck {
+	deduped := make([]endpointCheck, 0, len(checks))
+	seen := map[string]struct{}{}
+	for _, check := range checks {
+		if _, ok := seen[check.path]; ok {
+			continue
+		}
+		seen[check.path] = struct{}{}
+		deduped = append(deduped, check)
+	}
+	return deduped
+}
+
+func hasWordPressSignalHints(ctx specialistContext) bool {
+	for _, signal := range ctx.baselineSignals {
+		key := strings.ToLower(strings.TrimSpace(stringValue(signal["key"])))
+		value, ok := signal["value"].(bool)
+		if !ok || !value {
+			continue
+		}
+		if strings.Contains(key, "framework.wordpress") || strings.Contains(key, "surface.admin") || strings.Contains(key, "surface.api") {
+			return true
+		}
+	}
+
+	for _, finding := range ctx.baselineFindings {
+		combined := strings.ToLower(
+			strings.Join([]string{
+				stringValue(finding["title"]),
+				stringValue(finding["summary"]),
+				stringValue(finding["category"]),
+			}, " "),
+		)
+		if strings.Contains(combined, "wordpress") || strings.Contains(combined, "wp-") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func detectWPVersionFromRoot(root *rootFetchResult) string {
+	if root == nil {
+		return ""
+	}
+	if matches := generatorPattern.FindStringSubmatch(root.HTML); len(matches) > 1 {
+		return extractVersion(matches[1])
+	}
+	return ""
+}
+
+func findingsFromVulnerabilityResearch(research []map[string]interface{}, detectedVersion string) ([]models.Finding, map[string]interface{}) {
+	findings := make([]models.Finding, 0)
+	productsConsidered := make([]interface{}, 0)
+	matchedCVEs := 0
+
+	for _, item := range research {
+		product := strings.ToLower(strings.TrimSpace(stringValue(item["product"])))
+		if product == "" {
+			continue
+		}
+		productsConsidered = append(productsConsidered, product)
+
+		if product != "wordpress" && product != "wp" && product != "wordpress core" {
+			continue
+		}
+
+		version := firstNonEmpty(normalizeVersion(stringValue(item["version"])), detectedVersion)
+		for _, cve := range mapList(item["cve_matches"]) {
+			if matchedCVEs >= maxResearchCVEs {
+				break
+			}
+			cveID := strings.TrimSpace(stringValue(cve["cve_id"]))
+			if cveID == "" {
+				continue
+			}
+
+			severity := normalizeResearchSeverity(cve)
+			findings = append(findings, models.Finding{
+				Type:       "known_vulnerability",
+				Category:   "wordpress_vulnerability",
+				Title:      fmt.Sprintf("Potential WordPress exposure mapped from pre-specialist research: %s", cveID),
+				Severity:   severity,
+				Confidence: "medium",
+				Evidence:   firstNonEmpty(stringValue(cve["description"]), "Pre-specialist NVD/CVE research matched a potential WordPress issue."),
+				Details: map[string]interface{}{
+					"product":                  "wordpress",
+					"version":                  version,
+					"cve_id":                   cveID,
+					"cvss_score":               cve["cvss_score"],
+					"cvss_severity":            cve["cvss_severity"],
+					"source":                   "orchestrator.vulnerability_research",
+					"source_identifier":        cve["source_identifier"],
+					"published":                cve["published"],
+					"last_modified":            cve["last_modified"],
+					"requires_version_confirm": true,
+				},
+			})
+			matchedCVEs++
+		}
+	}
+
+	metadata := map[string]interface{}{
+		"products_considered": productsConsidered,
+		"matched_cve_count":   matchedCVEs,
+	}
+
+	return findings, metadata
+}
+
+func normalizeResearchSeverity(cve map[string]interface{}) string {
+	value := strings.ToLower(strings.TrimSpace(stringValue(cve["cvss_severity"])))
+	switch value {
+	case "critical", "high", "medium", "low":
+		return value
+	default:
+		return "medium"
+	}
+}
+
+func extractRequestedWPVersion(input map[string]interface{}) string {
+	for _, key := range []string{"wordpress_version", "wp_version", "framework_version", "version"} {
+		if version := normalizeVersion(stringValue(input[key])); version != "" {
+			return version
+		}
+	}
+
+	if version := extractWPVersionFromBaselineSignals(input["baseline_signals"]); version != "" {
+		return version
+	}
+
+	return ""
+}
+
+func extractWPVersionFromBaselineSignals(value interface{}) string {
+	for _, signal := range mapList(value) {
+		key := strings.ToLower(strings.TrimSpace(stringValue(signal["key"])))
+		if !strings.Contains(key, "wordpress") || !strings.Contains(key, "version") {
+			continue
+		}
+		if version := normalizeVersion(stringValue(signal["value"])); version != "" {
+			return version
+		}
+	}
+
+	if rawSignals, ok := value.([]interface{}); ok {
+		for _, item := range rawSignals {
+			signal, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			key := strings.ToLower(strings.TrimSpace(stringValue(signal["key"])))
+			if !strings.Contains(key, "wordpress") || !strings.Contains(key, "version") {
+				continue
+			}
+			if version := normalizeVersion(stringValue(signal["value"])); version != "" {
+				return version
+			}
+		}
+	}
+
+	return ""
+}
+
+func findWPVersionInTechnologySummary(summary map[string]interface{}) string {
+	versions := mapValue(summary["versions"])
+	for _, key := range []string{"wordpress", "wp"} {
+		if version := normalizeVersion(stringValue(versions[key])); version != "" {
+			return version
+		}
+	}
+	return ""
+}
+
+func findWPVersionInResearch(research []map[string]interface{}) string {
+	for _, item := range research {
+		product := strings.ToLower(strings.TrimSpace(stringValue(item["product"])))
+		if product != "wordpress" && product != "wp" && product != "wordpress core" {
+			continue
+		}
+		if version := normalizeVersion(stringValue(item["version"])); version != "" {
+			return version
+		}
+	}
+	return ""
+}
+
+func extractVersion(value string) string {
+	versionPattern := regexp.MustCompile(`(?i)\b\d+(?:\.\d+){1,3}\b`)
+	matches := versionPattern.FindStringSubmatch(value)
+	if len(matches) == 0 {
+		return ""
+	}
+	return normalizeVersion(matches[0])
+}
+
+func normalizeVersion(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(strings.ToLower(value), "v")
+	return value
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func mapList(value interface{}) []map[string]interface{} {
+	rawList, ok := value.([]interface{})
+	if !ok {
+		return nil
+	}
+
+	result := make([]map[string]interface{}, 0, len(rawList))
+	for _, item := range rawList {
+		if typed, ok := item.(map[string]interface{}); ok {
+			result = append(result, typed)
+		}
+	}
+
+	return result
+}
+
+func mapValue(value interface{}) map[string]interface{} {
+	typed, ok := value.(map[string]interface{})
+	if !ok {
+		return map[string]interface{}{}
+	}
+	return typed
+}
+
+func stringList(value interface{}) []string {
+	rawList, ok := value.([]interface{})
+	if !ok {
+		return nil
+	}
+
+	result := make([]string, 0, len(rawList))
+	for _, item := range rawList {
+		if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+			result = append(result, strings.TrimSpace(text))
+		}
+	}
+
+	return result
+}
+
+func stringValue(value interface{}) string {
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
 }

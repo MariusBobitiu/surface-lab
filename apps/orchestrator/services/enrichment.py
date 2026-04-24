@@ -65,6 +65,9 @@ def _map_owasp_category(finding: FindingResponse) -> str | None:
     if category == "wordpress_surface":
         return "A05:2025 - Security Misconfiguration"
 
+    if category == "wordpress_vulnerability":
+        return "A03:2025 - Software Supply Chain Failures"
+
     if category in {"nextjs_surface", "nextjs_exposure"}:
         return "A05:2025 - Security Misconfiguration"
 
@@ -91,6 +94,9 @@ def _map_wstg_reference(finding: FindingResponse) -> str | None:
         return "Information Gathering"
 
     if category in {"wordpress_surface", "wordpress_exposure"}:
+        return "Configuration and Deployment Management Testing"
+
+    if category == "wordpress_vulnerability":
         return "Configuration and Deployment Management Testing"
 
     if category == "nextjs_fingerprint":
@@ -127,6 +133,9 @@ def _build_remediation_summary(finding: FindingResponse) -> str | None:
 
     if category == "wordpress_surface" and "login" in title:
         return "Restrict access to the WordPress login surface with network controls, MFA, and rate limiting."
+
+    if category == "wordpress_vulnerability":
+        return "Upgrade WordPress core and affected plugins/themes to patched versions, then re-scan for known advisories."
 
     if category == "nextjs_exposure" and "source map" in title:
         return "Disable production browser source maps or restrict access to generated map files if they are not intended for public debugging."

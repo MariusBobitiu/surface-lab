@@ -21,6 +21,7 @@ const (
 	httpTimeout     = 8 * time.Second
 	maxBodyBytes    = 512 * 1024
 	maxChunkTargets = 2
+	maxResearchCVEs = 4
 )
 
 var (
@@ -55,6 +56,16 @@ type artifactProbeResult struct {
 	Evidence   string
 }
 
+type specialistContext struct {
+	matchedSignals         []string
+	baselineSignals        []map[string]interface{}
+	baselineFindings       []map[string]interface{}
+	technologySummary      map[string]interface{}
+	vulnerabilityResearch  []map[string]interface{}
+	requestedNextVersion   string
+	researchDerivedVersion string
+}
+
 func Run(ctx context.Context, target string, input map[string]interface{}) models.RunStackResult {
 	startedAt := time.Now()
 
@@ -75,8 +86,15 @@ func Run(ctx context.Context, target string, input map[string]interface{}) model
 	client := utils.NewHTTPClient(httpTimeout)
 	pathClient := utils.NewHTTPClientNoRedirect(httpTimeout)
 	findings := make([]models.Finding, 0)
+	context := parseSpecialistContext(input)
 	metadata := map[string]interface{}{
 		"request_metadata": input,
+		"context": map[string]interface{}{
+			"matched_signals":                context.matchedSignals,
+			"baseline_signal_count":          len(context.baselineSignals),
+			"baseline_finding_count":         len(context.baselineFindings),
+			"vulnerability_research_queries": len(context.vulnerabilityResearch),
+		},
 	}
 
 	rootResponse, rootErr := fetchRoot(ctx, client, rootURL)
@@ -99,10 +117,13 @@ func Run(ctx context.Context, target string, input map[string]interface{}) model
 	metadata["root_status"] = rootResponse.StatusCode
 	metadata["analysis"] = analysis.toMap()
 
-	detectedVersion := firstNonEmpty(extractRequestedNextVersion(input), analysis.nextVersion)
+	detectedVersion := firstNonEmpty(context.requestedNextVersion, context.researchDerivedVersion, analysis.nextVersion)
+
+	chunkTargets := collectChunkTargets(rootResponse.URL, analysis.chunkURLs, context)
+	metadata["candidate_chunk_targets"] = chunkTargets
 
 	chunkResults := make([]map[string]interface{}, 0)
-	for _, chunkURL := range firstN(analysis.chunkURLs, maxChunkTargets) {
+	for _, chunkURL := range chunkTargets {
 		chunkResult, chunkErr := probeChunk(ctx, client, chunkURL)
 		if chunkErr != nil {
 			chunkResults = append(chunkResults, map[string]interface{}{
@@ -141,6 +162,10 @@ func Run(ctx context.Context, target string, input map[string]interface{}) model
 	}
 
 	metadata["detected_next_version"] = detectedVersion
+	researchFindings, researchMetadata := findingsFromVulnerabilityResearch(context.vulnerabilityResearch, detectedVersion)
+	metadata["vulnerability_research"] = researchMetadata
+	findings = append(findings, researchFindings...)
+
 	advisoryFindings, advisoryMetadata, advisoryErr := lookupNextAdvisories(ctx, client, detectedVersion)
 	metadata["advisory_lookup"] = advisoryMetadata
 	if advisoryErr != nil {
@@ -718,4 +743,203 @@ func snippet(body []byte, limit int) string {
 		body = body[:limit]
 	}
 	return strings.TrimSpace(string(body))
+}
+
+func parseSpecialistContext(input map[string]interface{}) specialistContext {
+	ctx := specialistContext{
+		matchedSignals:        stringList(input["matched_signals"]),
+		baselineSignals:       mapList(input["baseline_signals"]),
+		baselineFindings:      mapList(input["baseline_findings"]),
+		technologySummary:     mapValue(input["technology_summary"]),
+		vulnerabilityResearch: mapList(input["vulnerability_research"]),
+		requestedNextVersion:  extractRequestedNextVersion(input),
+	}
+
+	ctx.researchDerivedVersion = findNextVersionInResearch(ctx.vulnerabilityResearch)
+	if ctx.requestedNextVersion == "" {
+		ctx.requestedNextVersion = findNextVersionInTechnologySummary(ctx.technologySummary)
+	}
+
+	return ctx
+}
+
+func collectChunkTargets(rootURL string, rootChunkURLs []string, ctx specialistContext) []string {
+	candidates := make([]string, 0, maxChunkTargets+2)
+	seen := map[string]struct{}{}
+
+	appendUnique := func(rawURL string) {
+		cleaned := strings.TrimSpace(rawURL)
+		if cleaned == "" {
+			return
+		}
+		resolved, err := joinPath(rootURL, cleaned)
+		if err != nil {
+			return
+		}
+		if !strings.Contains(strings.ToLower(resolved), "/_next/static/") {
+			return
+		}
+		if _, ok := seen[resolved]; ok {
+			return
+		}
+		seen[resolved] = struct{}{}
+		candidates = append(candidates, resolved)
+	}
+
+	for _, chunkURL := range rootChunkURLs {
+		appendUnique(chunkURL)
+	}
+
+	for _, finding := range ctx.baselineFindings {
+		details := mapValue(finding["details"])
+		appendUnique(stringValue(details["url"]))
+		appendUnique(stringValue(details["resolved"]))
+		appendUnique(stringValue(details["asset_url"]))
+	}
+
+	if len(candidates) == 0 {
+		return firstN(rootChunkURLs, maxChunkTargets)
+	}
+
+	return firstN(candidates, maxChunkTargets+2)
+}
+
+func findingsFromVulnerabilityResearch(research []map[string]interface{}, detectedVersion string) ([]models.Finding, map[string]interface{}) {
+	findings := make([]models.Finding, 0)
+	productsConsidered := make([]interface{}, 0)
+	matchedCVEs := 0
+
+	for _, item := range research {
+		product := strings.ToLower(strings.TrimSpace(stringValue(item["product"])))
+		if product == "" {
+			continue
+		}
+		productsConsidered = append(productsConsidered, product)
+
+		if product != "next" && product != "nextjs" && product != "next.js" {
+			continue
+		}
+
+		version := firstNonEmpty(normalizeVersion(stringValue(item["version"])), detectedVersion)
+		for _, cve := range mapList(item["cve_matches"]) {
+			if matchedCVEs >= maxResearchCVEs {
+				break
+			}
+			cveID := strings.TrimSpace(stringValue(cve["cve_id"]))
+			if cveID == "" {
+				continue
+			}
+
+			severity := normalizeResearchSeverity(cve)
+			findings = append(findings, models.Finding{
+				Type:       "known_vulnerability",
+				Category:   "nextjs_vulnerability",
+				Title:      fmt.Sprintf("Potential Next.js exposure mapped from pre-specialist research: %s", cveID),
+				Severity:   severity,
+				Confidence: "medium",
+				Evidence:   firstNonEmpty(stringValue(cve["description"]), "Pre-specialist NVD/CVE research matched a potential Next.js issue."),
+				Details: map[string]interface{}{
+					"product":                  "next",
+					"version":                  version,
+					"cve_id":                   cveID,
+					"cvss_score":               cve["cvss_score"],
+					"cvss_severity":            cve["cvss_severity"],
+					"source":                   "orchestrator.vulnerability_research",
+					"source_identifier":        cve["source_identifier"],
+					"published":                cve["published"],
+					"last_modified":            cve["last_modified"],
+					"requires_version_confirm": true,
+				},
+			})
+			matchedCVEs++
+		}
+	}
+
+	metadata := map[string]interface{}{
+		"products_considered": productsConsidered,
+		"matched_cve_count":   matchedCVEs,
+	}
+
+	return findings, metadata
+}
+
+func normalizeResearchSeverity(cve map[string]interface{}) string {
+	value := strings.ToLower(strings.TrimSpace(stringValue(cve["cvss_severity"])))
+	switch value {
+	case "critical", "high", "medium", "low":
+		return value
+	default:
+		return "medium"
+	}
+}
+
+func findNextVersionInResearch(research []map[string]interface{}) string {
+	for _, item := range research {
+		product := strings.ToLower(strings.TrimSpace(stringValue(item["product"])))
+		if product != "next" && product != "nextjs" && product != "next.js" {
+			continue
+		}
+		if version := normalizeVersion(stringValue(item["version"])); version != "" {
+			return version
+		}
+	}
+	return ""
+}
+
+func findNextVersionInTechnologySummary(summary map[string]interface{}) string {
+	versions := mapValue(summary["versions"])
+	for _, key := range []string{"nextjs", "next", "next.js"} {
+		if version := normalizeVersion(stringValue(versions[key])); version != "" {
+			return version
+		}
+	}
+	return ""
+}
+
+func mapList(value interface{}) []map[string]interface{} {
+	rawList, ok := value.([]interface{})
+	if !ok {
+		return nil
+	}
+
+	result := make([]map[string]interface{}, 0, len(rawList))
+	for _, item := range rawList {
+		if typed, ok := item.(map[string]interface{}); ok {
+			result = append(result, typed)
+		}
+	}
+
+	return result
+}
+
+func mapValue(value interface{}) map[string]interface{} {
+	typed, ok := value.(map[string]interface{})
+	if !ok {
+		return map[string]interface{}{}
+	}
+	return typed
+}
+
+func stringList(value interface{}) []string {
+	rawList, ok := value.([]interface{})
+	if !ok {
+		return nil
+	}
+
+	result := make([]string, 0, len(rawList))
+	for _, item := range rawList {
+		if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+			result = append(result, strings.TrimSpace(text))
+		}
+	}
+
+	return result
+}
+
+func stringValue(value interface{}) string {
+	text, ok := value.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(text)
 }

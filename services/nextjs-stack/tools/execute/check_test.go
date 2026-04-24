@@ -98,3 +98,48 @@ func TestOSVVulnerabilityFinding(t *testing.T) {
 		t.Fatalf("expected high severity, got %q", finding.Severity)
 	}
 }
+
+func TestParseSpecialistContextExtractsVersionFromResearch(t *testing.T) {
+	ctx := parseSpecialistContext(map[string]interface{}{
+		"vulnerability_research": []interface{}{
+			map[string]interface{}{
+				"product": "nextjs",
+				"version": "14.2.24",
+			},
+		},
+	})
+
+	if ctx.researchDerivedVersion != "14.2.24" {
+		t.Fatalf("expected research version 14.2.24, got %q", ctx.researchDerivedVersion)
+	}
+}
+
+func TestFindingsFromVulnerabilityResearchUsesNextCVEs(t *testing.T) {
+	findings, metadata := findingsFromVulnerabilityResearch([]map[string]interface{}{
+		{
+			"product": "nextjs",
+			"version": "14.2.24",
+			"cve_matches": []interface{}{
+				map[string]interface{}{
+					"cve_id":        "CVE-2099-0001",
+					"cvss_severity": "HIGH",
+					"description":   "Test vulnerability",
+				},
+			},
+		},
+	}, "14.2.24")
+
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding from research, got %d", len(findings))
+	}
+	if findings[0].Category != "nextjs_vulnerability" {
+		t.Fatalf("expected nextjs_vulnerability category, got %q", findings[0].Category)
+	}
+	if findings[0].Severity != "high" {
+		t.Fatalf("expected high severity, got %q", findings[0].Severity)
+	}
+
+	if metadata["matched_cve_count"] != 1 {
+		t.Fatalf("expected metadata matched_cve_count=1, got %#v", metadata["matched_cve_count"])
+	}
+}
