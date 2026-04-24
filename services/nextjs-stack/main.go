@@ -1,36 +1,24 @@
 package main
 
 import (
-	"context"
 	"log/slog"
 	"net"
 	"os"
 
-	"github.com/MariusBobitiu/surface-lab/scanner-service/config"
-	"github.com/MariusBobitiu/surface-lab/scanner-service/db"
-	scannergrpc "github.com/MariusBobitiu/surface-lab/scanner-service/transport/grpc"
-	"github.com/MariusBobitiu/surface-lab/scanner-service/utils"
+	"github.com/MariusBobitiu/surface-lab/nextjs-stack/config"
+	nextjsgrpc "github.com/MariusBobitiu/surface-lab/nextjs-stack/transport/grpc"
+	"github.com/MariusBobitiu/surface-lab/nextjs-stack/utils"
 )
 
 func main() {
 	cfg := config.Load()
-	logger := utils.NewLogger("scanner", cfg.Environment)
-	slog.SetDefault(logger)
-
 	if err := cfg.Validate(); err != nil {
-		logger.Error("invalid scanner config", "error", err)
+		slog.Error("invalid nextjs-stack config", "error", err)
 		os.Exit(1)
 	}
 
-	ctx := context.Background()
-
-	dbClient, err := db.Open(ctx, cfg.DatabaseURL)
-	if err != nil {
-		logger.Error("open database failed", "error", err)
-		os.Exit(1)
-	}
-	defer dbClient.Close()
-	logger.Info("database connection opened")
+	logger := utils.NewLogger("nextjs-stack", cfg.Environment)
+	slog.SetDefault(logger)
 
 	lis, err := net.Listen("tcp", cfg.Address())
 	if err != nil {
@@ -38,12 +26,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	server, err := scannergrpc.NewServer(logger, dbClient, scannergrpc.ServerOptions{
+	server, err := nextjsgrpc.NewServer(logger, nextjsgrpc.ServerOptions{
 		ServiceToken:          cfg.ServiceToken,
 		TLSEnabled:            cfg.GRPCTLSEnabled,
 		TLSCertFile:           cfg.GRPCTLSCertFile,
 		TLSKeyFile:            cfg.GRPCTLSKeyFile,
-		TLSCAFile:             cfg.GRPCTLSCAFile,
 		RateLimitRPS:          cfg.RateLimitRPS,
 		RateLimitBurst:        cfg.RateLimitBurst,
 		MaxConcurrentRequests: cfg.MaxConcurrentRequests,
@@ -56,12 +43,11 @@ func main() {
 	}
 
 	logger.Info(
-		"gRPC server listening",
+		"nextjs-stack gRPC server listening",
 		"address", cfg.Address(),
 		"env", cfg.Environment,
 		"reflection_enabled", cfg.IsDevelopment(),
 		"tls_enabled", cfg.GRPCTLSEnabled,
-		"internal_only", true,
 	)
 
 	if err := server.Serve(lis); err != nil {

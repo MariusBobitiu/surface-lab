@@ -26,6 +26,10 @@ CATEGORY_MAP = {
     "wordpress_fingerprint": ("wordpress-stack", "WordPress Stack"),
     "wordpress_surface": ("wordpress-stack", "WordPress Stack"),
     "wordpress_exposure": ("wordpress-stack", "WordPress Stack"),
+    "nextjs_fingerprint": ("nextjs-stack", "Next.js Stack"),
+    "nextjs_surface": ("nextjs-stack", "Next.js Stack"),
+    "nextjs_exposure": ("nextjs-stack", "Next.js Stack"),
+    "nextjs_vulnerability": ("nextjs-stack", "Next.js Stack"),
 }
 
 SEVERITY_ORDER = {

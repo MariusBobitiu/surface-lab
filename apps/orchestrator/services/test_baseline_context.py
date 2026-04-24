@@ -102,6 +102,30 @@ class BaselineContextTests(unittest.TestCase):
 
         self.assertEqual(context.canonical_url, "https://www.example.com")
 
+    def test_routing_signals_include_tooling(self) -> None:
+        created_at = datetime.now(timezone.utc)
+        scan = {"id": "scan-1", "target": "example.com"}
+        context = build_baseline_context(
+            scan=scan,
+            steps=[],
+            findings=[],
+            signals=[
+                SignalResponse(
+                    id="s1",
+                    tool_name="fingerprint/v1",
+                    key="tooling.supabase",
+                    value=True,
+                    confidence="medium",
+                    source="fingerprint.html",
+                    created_at=created_at,
+                )
+            ],
+            evidence=[],
+        )
+
+        self.assertIn("tooling.supabase", context.routing_signals)
+        self.assertEqual(context.planner_signal_summary()[0]["key"], "tooling.supabase")
+
 
 if __name__ == "__main__":
     unittest.main()

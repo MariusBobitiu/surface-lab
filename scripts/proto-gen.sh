@@ -11,6 +11,7 @@ TARGET="${1:-all}"
 SCANNER_GO_OUT_DIR="$ROOT_DIR/services/scanner/transport/grpc"
 BASELINE_GO_OUT_DIR="$ROOT_DIR/services/service-baseline/transport/grpc"
 WP_STACK_GO_OUT_DIR="$ROOT_DIR/services/wp-stack/transport/grpc"
+NEXTJS_STACK_GO_OUT_DIR="$ROOT_DIR/services/nextjs-stack/transport/grpc"
 PYTHON_OUT_DIR="$ROOT_DIR/apps/orchestrator/grpc_clients/v1"
 
 echo "Generating protobuf files..."
@@ -88,8 +89,11 @@ case "$TARGET" in
     generate_go "$PROTO_DIR/baseline.proto" "$BASELINE_GO_OUT_DIR"
     echo "Generating Go stubs for wp-stack..."
     generate_go "$PROTO_DIR/wp_stack.proto" "$WP_STACK_GO_OUT_DIR"
+    echo "Generating Go stubs for nextjs-stack..."
+    generate_go "$PROTO_DIR/nextjs_stack.proto" "$NEXTJS_STACK_GO_OUT_DIR"
     generate_python_stubs "$PROTO_DIR/tool.proto" "tool"
     generate_python_stubs "$PROTO_DIR/wp_stack.proto" "wp_stack"
+    generate_python_stubs "$PROTO_DIR/nextjs_stack.proto" "nextjs_stack"
     ;;
   scanner)
     echo "Generating Go stubs for scanner..."
@@ -105,9 +109,14 @@ case "$TARGET" in
     generate_go "$PROTO_DIR/wp_stack.proto" "$WP_STACK_GO_OUT_DIR"
     generate_python_stubs "$PROTO_DIR/wp_stack.proto" "wp_stack"
     ;;
+  nextjs-stack)
+    echo "Generating Go stubs for nextjs-stack..."
+    generate_go "$PROTO_DIR/nextjs_stack.proto" "$NEXTJS_STACK_GO_OUT_DIR"
+    generate_python_stubs "$PROTO_DIR/nextjs_stack.proto" "nextjs_stack"
+    ;;
   *)
     echo "Unknown target: $TARGET"
-    echo "Usage: scripts/proto-gen.sh [all|scanner|service-baseline|wp-stack]"
+    echo "Usage: scripts/proto-gen.sh [all|scanner|service-baseline|wp-stack|nextjs-stack]"
     exit 1
     ;;
 esac

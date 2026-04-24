@@ -2,6 +2,8 @@ package grpc
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -11,8 +13,12 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
 func TestAuthUnaryInterceptorAcceptsBearerToken(t *testing.T) {
-	interceptor := authUnaryInterceptor("scanner-token")
+	interceptor := authUnaryInterceptor(testLogger(), "scanner-token")
 	info := &grpc.UnaryServerInfo{FullMethod: "/surfacelab.scanner.v1.ToolService/CheckHeaders"}
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer scanner-token"))
 
@@ -30,7 +36,7 @@ func TestAuthUnaryInterceptorAcceptsBearerToken(t *testing.T) {
 }
 
 func TestAuthUnaryInterceptorRejectsMissingToken(t *testing.T) {
-	interceptor := authUnaryInterceptor("scanner-token")
+	interceptor := authUnaryInterceptor(testLogger(), "scanner-token")
 	info := &grpc.UnaryServerInfo{FullMethod: "/surfacelab.scanner.v1.ToolService/CheckHeaders"}
 
 	_, err := interceptor(context.Background(), nil, info, func(ctx context.Context, req any) (any, error) {
@@ -43,7 +49,7 @@ func TestAuthUnaryInterceptorRejectsMissingToken(t *testing.T) {
 }
 
 func TestAuthUnaryInterceptorAcceptsXServiceToken(t *testing.T) {
-	interceptor := authUnaryInterceptor("scanner-token")
+	interceptor := authUnaryInterceptor(testLogger(), "scanner-token")
 	info := &grpc.UnaryServerInfo{FullMethod: "/surfacelab.scanner.v1.ToolService/CheckHeaders"}
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-service-token", "scanner-token"))
 
@@ -56,7 +62,7 @@ func TestAuthUnaryInterceptorAcceptsXServiceToken(t *testing.T) {
 }
 
 func TestRateLimitUnaryInterceptorRejectsAfterBurst(t *testing.T) {
-	interceptor := rateLimitUnaryInterceptor(newTokenBucketLimiter(1, 1))
+	interceptor := rateLimitUnaryInterceptor(testLogger(), newTokenBucketLimiter(1, 1))
 	info := &grpc.UnaryServerInfo{FullMethod: "/surfacelab.scanner.v1.ToolService/CheckHeaders"}
 
 	_, err := interceptor(context.Background(), nil, info, func(ctx context.Context, req any) (any, error) {
@@ -75,7 +81,7 @@ func TestRateLimitUnaryInterceptorRejectsAfterBurst(t *testing.T) {
 }
 
 func TestProtectionUnaryInterceptorRejectsConcurrentRequests(t *testing.T) {
-	interceptor := protectionUnaryInterceptor(newConcurrencyLimiter(1), time.Second)
+	interceptor := protectionUnaryInterceptor(testLogger(), newConcurrencyLimiter(1), time.Second)
 	info := &grpc.UnaryServerInfo{FullMethod: "/surfacelab.scanner.v1.ToolService/RunBaselineScan"}
 
 	release := make(chan struct{})
@@ -104,7 +110,7 @@ func TestProtectionUnaryInterceptorRejectsConcurrentRequests(t *testing.T) {
 }
 
 func TestProtectionUnaryInterceptorTimesOut(t *testing.T) {
-	interceptor := protectionUnaryInterceptor(newConcurrencyLimiter(1), 20*time.Millisecond)
+	interceptor := protectionUnaryInterceptor(testLogger(), newConcurrencyLimiter(1), 20*time.Millisecond)
 	info := &grpc.UnaryServerInfo{FullMethod: "/surfacelab.scanner.v1.ToolService/RunBaselineScan"}
 
 	_, err := interceptor(context.Background(), nil, info, func(ctx context.Context, req any) (any, error) {

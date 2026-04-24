@@ -65,6 +65,12 @@ def _map_owasp_category(finding: FindingResponse) -> str | None:
     if category == "wordpress_surface":
         return "A05:2025 - Security Misconfiguration"
 
+    if category in {"nextjs_surface", "nextjs_exposure"}:
+        return "A05:2025 - Security Misconfiguration"
+
+    if category == "nextjs_vulnerability":
+        return "A03:2025 - Software Supply Chain Failures"
+
     if category in {"http_headers", "public_files", "sensitive_file_exposure"}:
         return "A05:2025 - Security Misconfiguration"
 
@@ -85,6 +91,15 @@ def _map_wstg_reference(finding: FindingResponse) -> str | None:
         return "Information Gathering"
 
     if category in {"wordpress_surface", "wordpress_exposure"}:
+        return "Configuration and Deployment Management Testing"
+
+    if category == "nextjs_fingerprint":
+        return "Information Gathering"
+
+    if category in {"nextjs_surface", "nextjs_exposure"}:
+        return "Configuration and Deployment Management Testing"
+
+    if category == "nextjs_vulnerability":
         return "Configuration and Deployment Management Testing"
 
     if category == "http_headers" or "tls" in category or "certificate" in title or "https" in title:
@@ -112,6 +127,18 @@ def _build_remediation_summary(finding: FindingResponse) -> str | None:
 
     if category == "wordpress_surface" and "login" in title:
         return "Restrict access to the WordPress login surface with network controls, MFA, and rate limiting."
+
+    if category == "nextjs_exposure" and "source map" in title:
+        return "Disable production browser source maps or restrict access to generated map files if they are not intended for public debugging."
+
+    if category == "nextjs_surface" and "data endpoint" in title:
+        return "Review the exposed Next.js data route and ensure it does not return sensitive page props or internal state."
+
+    if category == "nextjs_fingerprint":
+        return "Avoid exposing unnecessary framework and build metadata where it is not needed for normal client operation."
+
+    if category == "nextjs_vulnerability":
+        return "Upgrade Next.js to a patched release for the matched advisory, then rebuild and redeploy the application."
 
     if "strict-transport-security" in title or "hsts" in title:
         return "Add a Strict-Transport-Security header and verify it is applied consistently on HTTPS responses."

@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/MariusBobitiu/surface-lab/scanner-service/db"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
@@ -17,7 +16,6 @@ type ServerOptions struct {
 	TLSEnabled            bool
 	TLSCertFile           string
 	TLSKeyFile            string
-	TLSCAFile             string
 	RateLimitRPS          float64
 	RateLimitBurst        int
 	MaxConcurrentRequests int
@@ -25,8 +23,7 @@ type ServerOptions struct {
 	EnableReflection      bool
 }
 
-func NewServer(logger *slog.Logger, dbClient *db.Client, opts ServerOptions) (*grpc.Server, error) {
-	// The scanner only exposes internal gRPC methods and should not be internet-facing.
+func NewServer(logger *slog.Logger, opts ServerOptions) (*grpc.Server, error) {
 	serverOptions := []grpc.ServerOption{
 		grpc.ChainUnaryInterceptor(
 			requestLoggingUnaryInterceptor(logger),
@@ -49,11 +46,12 @@ func NewServer(logger *slog.Logger, dbClient *db.Client, opts ServerOptions) (*g
 	}
 
 	server := grpc.NewServer(serverOptions...)
-	RegisterToolServiceServer(server, NewToolServiceServer(logger, dbClient))
+	RegisterNextJSStackServiceServer(server, NewNextJSStackServiceServer(logger))
 	if opts.EnableReflection {
 		reflection.Register(server)
 		logger.Debug("gRPC reflection enabled")
 	}
+
 	return server, nil
 }
 

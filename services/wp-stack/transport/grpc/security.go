@@ -14,6 +14,24 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+func requestLoggingUnaryInterceptor(logger *slog.Logger) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		startedAt := time.Now()
+		logger.Info("gRPC request started", "method", info.FullMethod)
+
+		resp, err := handler(ctx, req)
+		durationMs := time.Since(startedAt).Milliseconds()
+		if err != nil {
+			statusCode := status.Code(err)
+			logger.Error("gRPC request failed", "method", info.FullMethod, "code", statusCode.String(), "duration_ms", durationMs, "error", err)
+			return resp, err
+		}
+
+		logger.Info("gRPC request completed", "method", info.FullMethod, "duration_ms", durationMs)
+		return resp, nil
+	}
+}
+
 func authUnaryInterceptor(logger *slog.Logger, expectedToken string) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if !isAuthorized(ctx, expectedToken) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	generateddb "github.com/MariusBobitiu/surface-lab/scanner-service/db/generated"
@@ -37,11 +38,17 @@ type Result struct {
 type Service struct {
 	queries *generateddb.Queries
 	tools   []toolSpec
+	logger  *slog.Logger
 }
 
-func New(queries *generateddb.Queries) *Service {
+func New(queries *generateddb.Queries, logger *slog.Logger) *Service {
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	return &Service{
 		queries: queries,
+		logger:  logger,
 		tools: []toolSpec{
 			{name: "fingerprint", run: fingerprint.Check},
 			{name: "headers", run: headers.Check},
@@ -62,13 +69,18 @@ func (s *Service) Run(ctx context.Context, target string) (Result, error) {
 
 	scanID := newUUID()
 	startedAt := time.Now().UTC()
+	s.logger.Info("creating baseline scan record", "target", target, "scan_id", uuidString(scanID))
 
 	if _, err := s.queries.CreateScan(ctx, newScanParams(scanID, target, startedAt)); err != nil {
+		s.logger.Error("create baseline scan record failed", "target", target, "scan_id", uuidString(scanID), "error", err)
 		return Result{}, fmt.Errorf("create scan: %w", err)
 	}
 
+	s.logger.Info("baseline scan step started", "scan_id", uuidString(scanID), "tool", "targeting", "target", target)
 	resolution := targeting.Check(ctx, target)
+	s.logger.Info("baseline scan step completed", "scan_id", uuidString(scanID), "tool", resolution.Result.Tool, "target", target, "status", resolution.Result.Status, "duration_ms", resolution.Result.DurationMs, "finding_count", len(resolution.Result.Findings), "signal_count", len(resolution.Result.Signals), "evidence_count", len(resolution.Result.Evidence), "error", resolution.Result.Error)
 	if err := s.persistToolResult(ctx, scanID, resolution.Result); err != nil {
+		s.logger.Error("persist baseline scan step failed", "scan_id", uuidString(scanID), "tool", resolution.Result.Tool, "error", err)
 		return s.failScan(ctx, scanID, fmt.Sprintf("persist %s step: %v", resolution.Result.Tool, err), err)
 	}
 	if isToolFailure(resolution.Result) {
@@ -81,9 +93,12 @@ func (s *Service) Run(ctx context.Context, target string) (Result, error) {
 	}
 
 	for _, tool := range s.tools {
+		s.logger.Info("baseline scan step started", "scan_id", uuidString(scanID), "tool", tool.name, "target", effectiveTarget)
 		result := tool.run(ctx, effectiveTarget)
+		s.logger.Info("baseline scan step completed", "scan_id", uuidString(scanID), "tool", result.Tool, "target", effectiveTarget, "status", result.Status, "duration_ms", result.DurationMs, "finding_count", len(result.Findings), "signal_count", len(result.Signals), "evidence_count", len(result.Evidence), "error", result.Error)
 
 		if err := s.persistToolResult(ctx, scanID, result); err != nil {
+			s.logger.Error("persist baseline scan step failed", "scan_id", uuidString(scanID), "tool", tool.name, "error", err)
 			return s.failScan(ctx, scanID, fmt.Sprintf("persist %s step: %v", tool.name, err), err)
 		}
 
@@ -99,9 +114,11 @@ func (s *Service) Run(ctx context.Context, target string) (Result, error) {
 		StartedAt:    pgtype.Timestamptz{},
 		CompletedAt:  timestampValue(time.Now().UTC()),
 	}); err != nil {
+		s.logger.Error("complete baseline scan failed", "scan_id", uuidString(scanID), "error", err)
 		return Result{}, fmt.Errorf("complete scan: %w", err)
 	}
 
+	s.logger.Info("baseline scan marked completed", "scan_id", uuidString(scanID), "duration_ms", time.Since(startedAt).Milliseconds())
 	return Result{
 		ScanID: uuidString(scanID),
 		Status: statusCompleted,
@@ -109,6 +126,7 @@ func (s *Service) Run(ctx context.Context, target string) (Result, error) {
 }
 
 func (s *Service) failScan(ctx context.Context, scanID pgtype.UUID, message string, cause error) (Result, error) {
+	s.logger.Error("baseline scan marked failed", "scan_id", uuidString(scanID), "message", message, "error", cause)
 	updateErr := s.queries.UpdateScanStatus(ctx, generateddb.UpdateScanStatusParams{
 		ID:           scanID,
 		Status:       statusFailed,

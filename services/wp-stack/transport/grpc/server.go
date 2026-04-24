@@ -26,6 +26,7 @@ type ServerOptions struct {
 func NewServer(logger *slog.Logger, opts ServerOptions) (*grpc.Server, error) {
 	serverOptions := []grpc.ServerOption{
 		grpc.ChainUnaryInterceptor(
+			requestLoggingUnaryInterceptor(logger),
 			authUnaryInterceptor(logger, opts.ServiceToken),
 			rateLimitUnaryInterceptor(logger, newTokenBucketLimiter(opts.RateLimitRPS, opts.RateLimitBurst)),
 			protectionUnaryInterceptor(logger, newConcurrencyLimiter(opts.MaxConcurrentRequests), opts.RequestTimeout),

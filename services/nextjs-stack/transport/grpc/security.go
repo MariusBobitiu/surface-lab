@@ -47,7 +47,7 @@ func rateLimitUnaryInterceptor(logger *slog.Logger, limiter *tokenBucketLimiter)
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if !limiter.Allow() {
 			logger.Warn("rate limit exceeded", "method", info.FullMethod)
-			return nil, status.Error(codes.ResourceExhausted, "scanner rate limit exceeded")
+			return nil, status.Error(codes.ResourceExhausted, "nextjs-stack rate limit exceeded")
 		}
 
 		return handler(ctx, req)
@@ -58,7 +58,7 @@ func protectionUnaryInterceptor(logger *slog.Logger, limiter *concurrencyLimiter
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if !limiter.TryAcquire() {
 			logger.Warn("concurrency limit reached", "method", info.FullMethod)
-			return nil, status.Error(codes.ResourceExhausted, "scanner is at max concurrency")
+			return nil, status.Error(codes.ResourceExhausted, "nextjs-stack is at max concurrency")
 		}
 		defer limiter.Release()
 
@@ -72,7 +72,7 @@ func protectionUnaryInterceptor(logger *slog.Logger, limiter *concurrencyLimiter
 
 		if errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
 			logger.Warn("request timed out", "method", info.FullMethod, "timeout", timeout.String())
-			return nil, status.Error(codes.DeadlineExceeded, "scanner request timed out")
+			return nil, status.Error(codes.DeadlineExceeded, "nextjs-stack request timed out")
 		}
 
 		return resp, err

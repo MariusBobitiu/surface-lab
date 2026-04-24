@@ -1,9 +1,10 @@
 import logging
 import os
+import time
 from pathlib import Path
 
 import psycopg
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
@@ -23,7 +24,12 @@ def load_env_file() -> None:
 
 
 load_env_file()
-logging.basicConfig(level=logging.INFO, format="%(levelname)s:     %(message)s")
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    force=True,
+)
+logger = logging.getLogger(__name__)
 
 from config import settings
 from api.routes import router as scans_router
@@ -78,6 +84,30 @@ def create_app() -> FastAPI:
     app.include_router(scans_router)
     _configure_openapi_api_key(app)
 
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        started_at = time.monotonic()
+        logger.info("HTTP request started method=%s path=%s", request.method, request.url.path)
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.exception(
+                "HTTP request failed method=%s path=%s duration_ms=%d",
+                request.method,
+                request.url.path,
+                int((time.monotonic() - started_at) * 1000),
+            )
+            raise
+
+        logger.info(
+            "HTTP request completed method=%s path=%s status_code=%s duration_ms=%d",
+            request.method,
+            request.url.path,
+            response.status_code,
+            int((time.monotonic() - started_at) * 1000),
+        )
+        return response
+
     @app.get("/health")
     @app.get("/healthz")
     def healthcheck() -> dict[str, str]:
@@ -97,6 +127,7 @@ def create_app() -> FastAPI:
                     with connection.cursor() as cursor:
                         cursor.execute("SELECT 1")
         except psycopg.Error:
+            logger.exception("readiness database check failed")
             return {"status": "error", "checks": {**checks, "database": "error"}}
 
         checks["database"] = "ok"

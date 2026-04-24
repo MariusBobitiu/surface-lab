@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 import grpc
 
+from grpc_clients.nextjs_stack_client import is_nextjs_stack_enabled, run_nextjs_stack
 from grpc_clients.wp_stack_client import is_wp_stack_enabled, run_wordpress_stack
 from schemas.planner import AdvancedContractExecutionResult, AdvancedContractFinding, AdvancedExecutionPlan, PlannerSelection
 from schemas.scan import FindingResponse
@@ -343,6 +344,10 @@ def _dispatch_contract(
     handlers = {
         "wordpress.v1.run_stack": _run_wordpress_contract,
         "nextjs.v1.run_stack": _run_nextjs_contract,
+        "frontend_frameworks.v1.run_stack": _run_generic_http_contract,
+        "backend_frameworks.v1.run_stack": _run_generic_http_contract,
+        "data_services.v1.run_stack": _run_generic_http_contract,
+        "deployment_platforms.v1.run_stack": _run_generic_http_contract,
         "generic_http.v1.run_stack": _run_generic_http_contract,
     }
 
@@ -367,6 +372,10 @@ def _run_wordpress_contract(
                 target,
                 metadata={
                     "matched_signals": matched_signals,
+                    "baseline_signals": baseline_context.planner_signal_summary(),
+                    "baseline_findings": baseline_context.planner_finding_summary(limit=12),
+                    "wordpress_version": baseline_context.signal_value("framework.wordpress.version"),
+                    "technology_summary": baseline_context.signal_value("technology.summary", {}),
                     "baseline_finding_count": len(baseline_context.findings),
                     "canonical_target": baseline_context.canonical_url,
                     "redirected": baseline_context.redirected,
@@ -447,14 +456,100 @@ def _run_nextjs_contract(
     baseline_context: BaselineContext,
     scan: dict | None,
 ) -> AdvancedContractExecutionResult:
+    matched_signals = _match_trigger_signals(contract, baseline_context)
+    target = _resolve_execution_target(scan, baseline_context)
+
+    if target and is_nextjs_stack_enabled():
+        try:
+            logger.info(
+                "Executing specialist contract name=%s service=%s target=%s",
+                contract.name,
+                contract.service,
+                target,
+            )
+            response = run_nextjs_stack(
+                target,
+                metadata={
+                    "matched_signals": matched_signals,
+                    "baseline_signals": baseline_context.planner_signal_summary(),
+                    "baseline_findings": baseline_context.planner_finding_summary(limit=12),
+                    "next_version": baseline_context.signal_value("framework.nextjs.version"),
+                    "baseline_finding_count": len(baseline_context.findings),
+                    "canonical_target": baseline_context.canonical_url,
+                    "redirected": baseline_context.redirected,
+                },
+            )
+            logger.info("Received response from nextjs-stack for target %s: status=%s finding_count=%d", target, response.get("status"), len(response.get("findings", [])))
+        except grpc.RpcError as exc:
+            logger.warning("nextjs-stack gRPC call failed for %s: %s", target, exc)
+            return AdvancedContractExecutionResult(
+                contract=contract.name,
+                status="failed",
+                metadata={
+                    "service_status": "grpc_error",
+                    "matched_signals": matched_signals,
+                    "target": target,
+                    "grpc_status": exc.code().name if exc.code() else None,
+                },
+                error=exc.details() or str(exc),
+            )
+        except RuntimeError as exc:
+            logger.warning("nextjs-stack execution unavailable for %s: %s", target, exc)
+        else:
+            logger.info(
+                "Specialist contract %s completed with status %s and %d findings",
+                contract.name,
+                response.get("status"),
+                len(response.get("findings", [])),
+            )
+            return AdvancedContractExecutionResult(
+                contract=contract.name,
+                status=_normalize_contract_status(response.get("status")),
+                findings=[
+                    AdvancedContractFinding(
+                        tool_name=response.get("tool") or contract.name,
+                        type=item.get("type", "informational"),
+                        category=item.get("category", "nextjs_fingerprint"),
+                        title=item.get("title", "Next.js stack finding"),
+                        severity=item.get("severity", "info"),
+                        confidence=item.get("confidence", "medium"),
+                        evidence=item.get("evidence", ""),
+                        details=item.get("details") or {},
+                    )
+                    for item in response.get("findings", [])
+                ],
+                metadata={
+                    "service_status": "grpc",
+                    "matched_signals": matched_signals,
+                    "target": target,
+                    **(response.get("metadata") or {}),
+                },
+                error=response.get("error") or None,
+            )
+
     return AdvancedContractExecutionResult(
         contract=contract.name,
         status="completed",
-        findings=[],
+        findings=[
+            AdvancedContractFinding(
+                tool_name="advanced_nextjs_stub",
+                type="fingerprint",
+                category="nextjs_fingerprint",
+                title="Next.js specialist scan path selected",
+                severity="info",
+                confidence="medium",
+                evidence="Baseline findings contained Next.js-aligned signals that triggered the specialist contract.",
+                details={
+                    "matched_signals": matched_signals,
+                    "target": target,
+                    "stub": True,
+                },
+            )
+        ],
         metadata={
-            "service_status": "stubbed",
-            "matched_signals": _match_trigger_signals(contract, baseline_context),
-            "target": _resolve_execution_target(scan, baseline_context),
+            "service_status": "stub_fallback",
+            "matched_signals": matched_signals,
+            "target": target,
             "canonical_target": baseline_context.canonical_url,
         },
     )
@@ -465,14 +560,19 @@ def _run_generic_http_contract(
     baseline_context: BaselineContext,
     scan: dict | None,
 ) -> AdvancedContractExecutionResult:
+    matched_signals = _match_trigger_signals(contract, baseline_context)
     return AdvancedContractExecutionResult(
         contract=contract.name,
         status="completed",
         findings=[],
         metadata={
             "service_status": "stubbed",
+            "matched_signals": matched_signals,
             "baseline_finding_count": len(baseline_context.findings),
             "baseline_signal_count": len(baseline_context.signal_map),
+            "technology_summary": baseline_context.signal_value("technology.summary", {}),
+            "baseline_signals": baseline_context.planner_signal_summary(),
+            "baseline_findings": baseline_context.planner_finding_summary(limit=12),
             "target": _resolve_execution_target(scan, baseline_context),
             "canonical_target": baseline_context.canonical_url,
         },

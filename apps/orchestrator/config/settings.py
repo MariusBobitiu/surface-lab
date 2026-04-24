@@ -68,6 +68,14 @@ def _get_wp_stack_auth_mode() -> str:
     return mode
 
 
+def _get_nextjs_stack_auth_mode() -> str:
+    mode = _get_str("NEXTJS_STACK_GRPC_AUTH_MODE", "bearer").lower()
+    if mode not in {"bearer", "x-service-token"}:
+        raise RuntimeError("NEXTJS_STACK_GRPC_AUTH_MODE must be one of: bearer, x-service-token")
+
+    return mode
+
+
 def _get_scanner_tls_settings() -> tuple[bool, str, str]:
     enabled = _get_bool("SCANNER_GRPC_TLS_ENABLED", False)
     ca_file = _get_str("SCANNER_GRPC_TLS_CA_FILE")
@@ -96,6 +104,22 @@ def _get_wp_stack_tls_settings() -> tuple[bool, str, str]:
         ca_path = Path(ca_file)
         if not ca_path.exists():
             raise RuntimeError(f"WP_STACK_GRPC_TLS_CA_FILE does not exist: {ca_file}")
+
+    return enabled, ca_file, server_name
+
+
+def _get_nextjs_stack_tls_settings() -> tuple[bool, str, str]:
+    enabled = _get_bool("NEXTJS_STACK_GRPC_TLS_ENABLED", False)
+    ca_file = _get_str("NEXTJS_STACK_GRPC_TLS_CA_FILE")
+    server_name = _get_str("NEXTJS_STACK_GRPC_TLS_SERVER_NAME")
+
+    if enabled and not ca_file:
+        raise RuntimeError("NEXTJS_STACK_GRPC_TLS_CA_FILE is required when NEXTJS_STACK_GRPC_TLS_ENABLED=true")
+
+    if enabled and ca_file:
+        ca_path = Path(ca_file)
+        if not ca_path.exists():
+            raise RuntimeError(f"NEXTJS_STACK_GRPC_TLS_CA_FILE does not exist: {ca_file}")
 
     return enabled, ca_file, server_name
 
@@ -142,6 +166,11 @@ WP_STACK_GRPC_ADDRESS = _get_str("WP_STACK_GRPC_ADDRESS", "localhost:50062")
 WP_STACK_SERVICE_TOKEN = _get_str("WP_STACK_SERVICE_TOKEN")
 WP_STACK_GRPC_AUTH_MODE = _get_wp_stack_auth_mode()
 WP_STACK_GRPC_TLS_ENABLED, WP_STACK_GRPC_TLS_CA_FILE, WP_STACK_GRPC_TLS_SERVER_NAME = _get_wp_stack_tls_settings()
+NEXTJS_STACK_ENABLED = _get_bool("NEXTJS_STACK_ENABLED", False)
+NEXTJS_STACK_GRPC_ADDRESS = _get_str("NEXTJS_STACK_GRPC_ADDRESS", "localhost:50061")
+NEXTJS_STACK_SERVICE_TOKEN = _get_str("NEXTJS_STACK_SERVICE_TOKEN")
+NEXTJS_STACK_GRPC_AUTH_MODE = _get_nextjs_stack_auth_mode()
+NEXTJS_STACK_GRPC_TLS_ENABLED, NEXTJS_STACK_GRPC_TLS_CA_FILE, NEXTJS_STACK_GRPC_TLS_SERVER_NAME = _get_nextjs_stack_tls_settings()
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 NVD_API_KEY = os.getenv("NVD_API_KEY", "").strip()
 NVD_ENABLED = _get_bool("NVD_ENABLED", bool(NVD_API_KEY))

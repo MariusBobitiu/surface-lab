@@ -178,6 +178,86 @@ class AdvancedScanExecutionTests(unittest.TestCase):
         self.assertFalse(analysis["ambiguous_evidence"])
         self.assertEqual(analysis["contract_signal_matches"]["nextjs.v1.run_stack"], ["framework.nextjs", "assets.next_static"])
 
+    def test_executes_nextjs_stub_contract_with_canonical_target(self) -> None:
+        execution_plan = AdvancedExecutionPlan(
+            confidence="high",
+            raw_selected_contracts=["nextjs.v1.run_stack"],
+            executed_contracts=["nextjs.v1.run_stack"],
+            notes=[],
+        )
+        baseline_context = build_baseline_context(
+            scan={"id": "scan-1", "target": "https://raw.example.com"},
+            steps=[],
+            findings=[],
+            signals=[
+                SignalResponse(
+                    id="s1",
+                    tool_name="fingerprint/v1",
+                    key="framework.nextjs",
+                    value=True,
+                    confidence="high",
+                    source="fingerprint.combined",
+                    created_at="2026-04-22T10:00:00Z",
+                ),
+                SignalResponse(
+                    id="s2",
+                    tool_name="targeting/v1",
+                    key="transport.canonical_url",
+                    value="https://example.com",
+                    confidence="high",
+                    source="targeting.redirect_chain",
+                    created_at="2026-04-22T10:00:00Z",
+                ),
+            ],
+            evidence=[],
+        )
+
+        results = execute_advanced_scan_plan(
+            planner_result=execution_plan,
+            baseline_context=baseline_context,
+            scan={"target": "https://raw.example.com", "canonical_target": "https://example.com"},
+        )
+
+        self.assertEqual(results[0].contract, "nextjs.v1.run_stack")
+        self.assertEqual(results[0].metadata["target"], "https://example.com")
+        self.assertEqual(results[0].findings[0].tool_name, "advanced_nextjs_stub")
+
+    def test_analyze_baseline_matches_frontend_framework_contract(self) -> None:
+        baseline_context = build_baseline_context(
+            scan={"id": "scan-1", "target": "https://example.com"},
+            steps=[],
+            findings=[],
+            signals=[
+                SignalResponse(
+                    id="s1",
+                    tool_name="fingerprint/v1",
+                    key="framework.vue",
+                    value=True,
+                    confidence="high",
+                    source="fingerprint.html",
+                    created_at="2026-04-22T10:00:00Z",
+                ),
+                SignalResponse(
+                    id="s2",
+                    tool_name="fingerprint/v1",
+                    key="framework.vite",
+                    value=True,
+                    confidence="medium",
+                    source="fingerprint.html",
+                    created_at="2026-04-22T10:00:00Z",
+                ),
+            ],
+            evidence=[],
+        )
+
+        analysis = analyze_baseline_findings(baseline_context)
+
+        self.assertIn("frontend_frameworks.v1.run_stack", analysis["contract_signal_matches"])
+        self.assertEqual(
+            analysis["contract_signal_matches"]["frontend_frameworks.v1.run_stack"],
+            ["framework.vue", "framework.vite"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -509,13 +509,15 @@ function getCategoryDescription(name: string) {
     "Public Exposure": "Publicly accessible files and deployment artifacts that increase the exposed surface area.",
     "Sensitive File Exposure": "Direct exposure of sensitive files or artifacts that should not be publicly retrievable.",
     "Technology Fingerprint": "Observed infrastructure and framework signals. Informational — not vulnerabilities on their own.",
+    "Next.js Stack": "Next.js framework markers, routing surfaces, build metadata, and deployment artifacts observed during specialist checks.",
+    "WordPress Stack": "WordPress-specific application surface findings and exposed platform artifacts observed during specialist checks.",
     Other: "Additional findings that did not map cleanly into the primary report sections.",
   }
   return map[name] ?? "Findings grouped for deeper technical review and remediation planning."
 }
 
 function isInformationalCategory(name: string) {
-  return name === "Technology Fingerprint" || name === "Other"
+  return name === "Technology Fingerprint"
 }
 
 function getFingerprintLabel(finding: EnrichedFindingResponse) {
@@ -528,10 +530,12 @@ function getFingerprintLabel(finding: EnrichedFindingResponse) {
 }
 
 function getFingerprintValue(finding: EnrichedFindingResponse) {
-  const vals = Object.values(finding.details ?? {}).filter(
-    (v): v is string => typeof v === "string" && v.trim().length > 0,
-  )
-  if (vals.length) return vals.join(" ").trim()
+  const details = finding.details ?? {}
+  for (const key of ["framework", "server", "cdn", "generator", "name", "product", "value"]) {
+    const value = details[key]
+    if (typeof value === "string" && value.trim()) return value.trim()
+  }
+
   return finding.evidence
     .replace(/^detected\s+/i, "")
     .replace(/^(framework|server technology|cdn or edge provider|generator)\s*/i, "")

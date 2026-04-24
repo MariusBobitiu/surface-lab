@@ -5,38 +5,38 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/MariusBobitiu/surface-lab/service-baseline/models"
-	"github.com/MariusBobitiu/surface-lab/service-baseline/tools/execute"
+	"github.com/MariusBobitiu/surface-lab/nextjs-stack/models"
+	"github.com/MariusBobitiu/surface-lab/nextjs-stack/tools/execute"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-type baselineServiceServer struct {
-	UnimplementedBaselineServiceServer
+type nextJSStackServiceServer struct {
+	UnimplementedNextJSStackServiceServer
 	logger *slog.Logger
 }
 
-func NewBaselineServiceServer(logger *slog.Logger) BaselineServiceServer {
-	return &baselineServiceServer{
+func NewNextJSStackServiceServer(logger *slog.Logger) NextJSStackServiceServer {
+	return &nextJSStackServiceServer{
 		logger: logger,
 	}
 }
 
-func (s *baselineServiceServer) RunStack(ctx context.Context, req *RunStackRequest) (*RunStackResponse, error) {
+func (s *nextJSStackServiceServer) RunStack(ctx context.Context, req *RunStackRequest) (*RunStackResponse, error) {
 	if req.GetTarget() == "" {
 		return nil, status.Error(codes.InvalidArgument, "target is required")
 	}
 
-	input := map[string]interface{}{}
-	if req.GetInput() != nil {
-		input = req.GetInput().AsMap()
+	metadata := map[string]interface{}{}
+	if req.GetMetadata() != nil {
+		metadata = req.GetMetadata().AsMap()
 	}
 
 	startedAt := time.Now()
-	s.logger.Info("RunStack execution started", "target", req.GetTarget(), "input_keys", len(input))
+	s.logger.Info("RunStack execution started", "target", req.GetTarget(), "metadata_keys", len(metadata))
 
-	result := execute.Run(ctx, req.GetTarget(), input)
+	result := execute.Run(ctx, req.GetTarget(), metadata)
 	fields := []any{
 		"target", req.GetTarget(),
 		"status", result.Status,
@@ -67,7 +67,7 @@ func toProtoRunStackResponse(result models.RunStackResult) *RunStackResponse {
 	}
 
 	return &RunStackResponse{
-		Service:    result.Service,
+		Tool:       result.Tool,
 		Target:     result.Target,
 		Status:     result.Status,
 		DurationMs: result.DurationMS,

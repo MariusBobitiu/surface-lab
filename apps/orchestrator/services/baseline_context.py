@@ -45,7 +45,11 @@ class BaselineContext:
 
     @property
     def routing_signals(self) -> dict[str, SignalValue]:
-        return {key: value for key, value in self.signal_map.items() if key.startswith(("framework.", "assets.", "surface."))}
+        return {
+            key: value
+            for key, value in self.signal_map.items()
+            if key.startswith(("framework.", "technology.", "assets.", "surface.", "hosting.", "tooling."))
+        }
 
     @property
     def posture_signals(self) -> dict[str, SignalValue]:
@@ -68,6 +72,7 @@ class BaselineContext:
             self.signal_map,
             key=lambda key: (
                 0 if key.startswith(("framework.", "assets.", "surface.", "exposure.")) else 1,
+                0 if key.startswith(("technology.", "hosting.", "tooling.")) else 1,
                 key,
             ),
         )

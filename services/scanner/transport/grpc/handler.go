@@ -2,6 +2,8 @@ package grpc
 
 import (
 	"context"
+	"log/slog"
+	"time"
 
 	baselinescan "github.com/MariusBobitiu/surface-lab/scanner-service/baseline_scan"
 	"github.com/MariusBobitiu/surface-lab/scanner-service/db"
@@ -18,12 +20,15 @@ import (
 type toolServiceServer struct {
 	UnimplementedToolServiceServer
 	baselineScan *baselinescan.Service
+	logger       *slog.Logger
 }
 
-func NewToolServiceServer(dbClient *db.Client) ToolServiceServer {
-	server := &toolServiceServer{}
+func NewToolServiceServer(logger *slog.Logger, dbClient *db.Client) ToolServiceServer {
+	server := &toolServiceServer{
+		logger: logger,
+	}
 	if dbClient != nil {
-		server.baselineScan = baselinescan.New(dbClient.Queries)
+		server.baselineScan = baselinescan.New(dbClient.Queries, logger)
 	}
 	return server
 }
@@ -33,7 +38,10 @@ func (s *toolServiceServer) CheckHeaders(ctx context.Context, req *ToolRequest) 
 		return nil, status.Error(codes.InvalidArgument, "target is required")
 	}
 
+	s.logger.Info("tool check started", "tool", "headers.v1.check", "target", req.GetTarget())
+	startedAt := time.Now()
 	result := headersv1.Check(ctx, req.GetTarget())
+	s.logToolResult("headers.v1.check", result.Status, req.GetTarget(), startedAt, result.Error, len(result.Findings))
 	return toProtoToolResult(result), nil
 }
 
@@ -42,7 +50,10 @@ func (s *toolServiceServer) CheckTLS(ctx context.Context, req *ToolRequest) (*To
 		return nil, status.Error(codes.InvalidArgument, "target is required")
 	}
 
+	s.logger.Info("tool check started", "tool", "tls.v1.check", "target", req.GetTarget())
+	startedAt := time.Now()
 	result := tlsv1.Check(ctx, req.GetTarget())
+	s.logToolResult("tls.v1.check", result.Status, req.GetTarget(), startedAt, result.Error, len(result.Findings))
 	return toProtoToolResult(result), nil
 }
 
@@ -51,7 +62,10 @@ func (s *toolServiceServer) CheckFileExposure(ctx context.Context, req *ToolRequ
 		return nil, status.Error(codes.InvalidArgument, "target is required")
 	}
 
+	s.logger.Info("tool check started", "tool", "files.v1.check", "target", req.GetTarget())
+	startedAt := time.Now()
 	result := filesv1.Check(ctx, req.GetTarget())
+	s.logToolResult("files.v1.check", result.Status, req.GetTarget(), startedAt, result.Error, len(result.Findings))
 	return toProtoToolResult(result), nil
 }
 
@@ -60,7 +74,10 @@ func (s *toolServiceServer) Fingerprint(ctx context.Context, req *ToolRequest) (
 		return nil, status.Error(codes.InvalidArgument, "target is required")
 	}
 
+	s.logger.Info("tool check started", "tool", "fingerprint.v1.check", "target", req.GetTarget())
+	startedAt := time.Now()
 	result := fingerprintv1.Check(ctx, req.GetTarget())
+	s.logToolResult("fingerprint.v1.check", result.Status, req.GetTarget(), startedAt, result.Error, len(result.Findings))
 	return toProtoToolResult(result), nil
 }
 
@@ -73,18 +90,39 @@ func (s *toolServiceServer) RunBaselineScan(ctx context.Context, req *BaselineSc
 		return nil, status.Error(codes.FailedPrecondition, "baseline scan service is not configured")
 	}
 
+	s.logger.Info("baseline scan started", "target", req.GetTarget())
+	startedAt := time.Now()
 	result, err := s.baselineScan.Run(ctx, req.GetTarget())
 	if err != nil {
+		s.logger.Error("baseline scan failed", "target", req.GetTarget(), "scan_id", result.ScanID, "status", result.Status, "duration_ms", time.Since(startedAt).Milliseconds(), "error", err)
 		return &BaselineScanResponse{
 			ScanId: result.ScanID,
 			Status: result.Status,
 		}, status.Errorf(codes.Internal, "run baseline scan: %v", err)
 	}
 
+	s.logger.Info("baseline scan completed", "target", req.GetTarget(), "scan_id", result.ScanID, "status", result.Status, "duration_ms", time.Since(startedAt).Milliseconds())
 	return &BaselineScanResponse{
 		ScanId: result.ScanID,
 		Status: result.Status,
 	}, nil
+}
+
+func (s *toolServiceServer) logToolResult(tool string, status string, target string, startedAt time.Time, errMessage string, findingCount int) {
+	fields := []any{
+		"tool", tool,
+		"target", target,
+		"status", status,
+		"finding_count", findingCount,
+		"duration_ms", time.Since(startedAt).Milliseconds(),
+	}
+	if errMessage != "" {
+		fields = append(fields, "error", errMessage)
+		s.logger.Warn("tool check completed with error", fields...)
+		return
+	}
+
+	s.logger.Info("tool check completed", fields...)
 }
 
 func toProtoToolResult(result models.ToolResult) *ToolResult {

@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/MariusBobitiu/surface-lab/wp-stack/models"
 	"github.com/MariusBobitiu/surface-lab/wp-stack/tools/execute"
@@ -32,9 +33,22 @@ func (s *wordPressStackServiceServer) RunStack(ctx context.Context, req *RunStac
 		metadata = req.GetMetadata().AsMap()
 	}
 
-	s.logger.Info("RunStack request received", "target", req.GetTarget())
+	startedAt := time.Now()
+	s.logger.Info("RunStack execution started", "target", req.GetTarget(), "metadata_keys", len(metadata))
 
 	result := execute.Run(ctx, req.GetTarget(), metadata)
+	fields := []any{
+		"target", req.GetTarget(),
+		"status", result.Status,
+		"finding_count", len(result.Findings),
+		"duration_ms", time.Since(startedAt).Milliseconds(),
+	}
+	if result.Error != "" {
+		fields = append(fields, "error", result.Error)
+		s.logger.Warn("RunStack execution completed with error", fields...)
+	} else {
+		s.logger.Info("RunStack execution completed", fields...)
+	}
 	return toProtoRunStackResponse(result), nil
 }
 
