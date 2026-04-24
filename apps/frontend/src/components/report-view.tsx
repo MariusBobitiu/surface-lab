@@ -1,9 +1,16 @@
 "use client"
 
-import { ArrowLeft, CalendarClock, CircleAlert, ShieldCheck } from "lucide-react"
+import { ArrowLeft, CalendarClock, CheckCircle2, CircleAlert, CircleDashed, ShieldCheck, XCircle } from "lucide-react"
 import Link from "next/link"
 
-import type { EnrichedFindingResponse, EnrichedReportResponse, Severity } from "@/types/report"
+import type {
+  EnrichedFindingResponse,
+  EnrichedReportResponse,
+  ReportCheckCategoryResponse,
+  ReportCheckResponse,
+  ReportCheckStatus,
+  Severity,
+} from "@/types/report"
 import { formatDateTime, getSeverityTone, severityLabel } from "@/utils/format"
 import { Badge } from "@/components/ui/badge"
 
@@ -280,6 +287,29 @@ export function ReportView({ report }: ReportViewProps) {
           </div>
         </div>
       </section>
+
+      {/* ── Verification coverage ───────────────────────────────────────── */}
+      {report.check_categories.length > 0 && (
+        <section className={`border-t border-border/40 py-12 lg:py-16 ${rail}`}>
+          <div className={innerMax}>
+            <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.32em] text-muted-foreground/40">
+              Verification coverage
+            </p>
+            <h2 className="font-heading text-xl font-semibold tracking-tight">
+              Everything checked in this run.
+            </h2>
+            <p className="mt-2 text-sm leading-[1.8] text-muted-foreground">
+              Findings above show what needs attention. This section shows the full checklist, including checks that passed.
+            </p>
+
+            <div className="mt-8 space-y-8">
+              {report.check_categories.map((category) => (
+                <CheckCategoryBlock key={category.slug} category={category} />
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   )
 }
@@ -472,6 +502,46 @@ function CategoryTag({ count, severity }: { count: number; severity: Severity })
   )
 }
 
+function CheckCategoryBlock({ category }: { category: ReportCheckCategoryResponse }) {
+  return (
+    <div className="border-t border-border/30 pt-7 first:border-t-0 first:pt-0">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-heading text-lg font-semibold tracking-tight">{category.name}</h3>
+        <div className="flex flex-wrap items-center gap-4 text-[11px] uppercase tracking-[0.18em] text-muted-foreground/50">
+          <span className="text-destructive/80">{category.failed} failed</span>
+          <span className="text-chart-5/80">{category.passed} passed</span>
+          <span>{category.not_run} not run</span>
+        </div>
+      </div>
+
+      <div className="divide-y divide-border/25">
+        {category.checks.map((check) => (
+          <CheckRow key={check.id} check={check} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function CheckRow({ check }: { check: ReportCheckResponse }) {
+  const statusTone = getCheckStatusTone(check.status)
+
+  return (
+    <div className="grid gap-x-4 gap-y-1 py-4 sm:grid-cols-[22px_1fr] sm:items-start">
+      <div className="pt-0.5 text-muted-foreground/80">{statusTone.icon}</div>
+      <div>
+        <div className="flex flex-wrap items-center gap-2">
+          <h4 className="text-sm font-semibold leading-snug">{check.title}</h4>
+          <Badge className={`${statusTone.badge} border-0 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.15em]`}>
+            {statusTone.label}
+          </Badge>
+        </div>
+        <p className="mt-1 text-sm leading-[1.8] text-muted-foreground">{check.detail}</p>
+      </div>
+    </div>
+  )
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function getRiskLabel(score: number) {
@@ -541,4 +611,28 @@ function getFingerprintValue(finding: EnrichedFindingResponse) {
     .replace(/^(framework|server technology|cdn or edge provider|generator)\s*/i, "")
     .replace(/^[:\-]\s*/, "")
     .trim()
+}
+
+function getCheckStatusTone(status: ReportCheckStatus) {
+  if (status === "failed") {
+    return {
+      label: "failed",
+      badge: "bg-destructive/15 text-destructive",
+      icon: <XCircle className="size-4 text-destructive" />,
+    }
+  }
+
+  if (status === "passed") {
+    return {
+      label: "passed",
+      badge: "bg-chart-5/15 text-chart-5",
+      icon: <CheckCircle2 className="size-4 text-chart-5" />,
+    }
+  }
+
+  return {
+    label: "not run",
+    badge: "bg-muted text-muted-foreground",
+    icon: <CircleDashed className="size-4 text-muted-foreground/70" />,
+  }
 }

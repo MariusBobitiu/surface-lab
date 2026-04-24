@@ -4,13 +4,18 @@ from schemas.scan import (
     EnrichedReportResponse,
     FindingResponse,
     ReportCategoryResponse,
+    ReportCheckCategoryResponse,
+    ReportCheckResponse,
     ReportSummaryResponse,
     ReportTopIssueResponse,
     ScanReportResponse,
     ScanSummaryResponse,
+    ScanStepResponse,
 )
-from services.baseline_context import build_baseline_context
+from schemas.planner import VulnerabilityResearchPlan, VulnerabilityResearchResult
+from services.baseline_context import build_baseline_context, BaselineContext
 from services.enrichment import enrich_findings
+from services.llm import generate_vulnerability_control_matrix
 from services.scans import build_summary, fetch_evidence, fetch_findings, fetch_scan, fetch_scan_steps, fetch_signals
 from db.postgres import get_db_connection
 
@@ -76,13 +81,14 @@ def get_enriched_scan_report(scan_id: str) -> EnrichedReportResponse:
         findings = fetch_findings(connection, scan_id)
         signals = fetch_signals(connection, scan_id)
         evidence = fetch_evidence(connection, scan_id)
+    baseline_context = build_baseline_context(scan, steps, findings, signals, evidence)
     scan = {
         **scan,
-        "canonical_target": build_baseline_context(scan, steps, findings, signals, evidence).canonical_url,
+        "canonical_target": baseline_context.canonical_url,
     }
 
     enriched_findings = enrich_findings(findings)
-    return build_enriched_report(scan, findings, enriched_findings)
+    return build_enriched_report(scan, findings, enriched_findings, steps=steps, baseline_context=baseline_context)
 
 
 def build_scan_report(scan: dict, findings: list[FindingResponse]) -> ScanReportResponse:
@@ -105,10 +111,16 @@ def build_enriched_report(
     scan: dict,
     findings: list[FindingResponse],
     enriched_findings: list[EnrichedFindingResponse],
+    steps: list[ScanStepResponse] | None = None,
+    executed_contracts: list[str] | None = None,
+    vulnerability_research_plan: VulnerabilityResearchPlan | None = None,
+    vulnerability_research_results: list[VulnerabilityResearchResult] | None = None,
+    baseline_context: BaselineContext | None = None,
 ) -> EnrichedReportResponse:
     summary = build_summary(findings)
-
-    return EnrichedReportResponse(
+    
+    # Build the basic report first
+    report = EnrichedReportResponse(
         scan_id=str(scan["id"]),
         target=scan.get("canonical_target") or scan["target"],
         status=scan["status"],
@@ -119,6 +131,35 @@ def build_enriched_report(
         created_at=scan["created_at"],
         completed_at=scan["completed_at"],
     )
+    
+    # Use LLM to generate a smart vulnerability control matrix
+    detected_stack = _detect_stack(baseline_context) if baseline_context else "generic"
+    check_categories = generate_vulnerability_control_matrix(
+        report=report,
+        detected_stack=detected_stack,
+        executed_contracts=executed_contracts or [],
+    )
+    
+    return report.model_copy(update={"check_categories": check_categories})
+
+
+def _detect_stack(baseline_context: BaselineContext) -> str:
+    """Detect the primary stack from baseline signals."""
+    if baseline_context.signal_is_true("framework.wordpress"):
+        return "WordPress"
+    if baseline_context.signal_is_true("framework.nextjs"):
+        return "Next.js"
+    if baseline_context.signal_is_true("framework.react"):
+        return "React"
+    if baseline_context.signal_is_true("framework.angular"):
+        return "Angular"
+    if baseline_context.signal_is_true("framework.vue"):
+        return "Vue.js"
+    if baseline_context.signal_is_true("framework.django"):
+        return "Django"
+    if baseline_context.signal_is_true("framework.dotnet"):
+        return "ASP.NET Core"
+    return "Generic Web Application"
 
 
 def _build_top_issues(findings: list[FindingResponse]) -> list[ReportTopIssueResponse]:

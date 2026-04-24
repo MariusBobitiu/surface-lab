@@ -429,6 +429,23 @@ function mapEventToStep(event: ScanWorkflowEvent): ProgressStep | null {
     case "baseline.completed":
       return { id: "baseline", label: "Basic scan completed", status: "completed" }
 
+    case "vuln.research.planning.started":
+      return { id: "vuln.research.plan", label: "Planning vulnerability lookups...", status: "active" }
+
+    case "vuln.research.planning.completed":
+      return { id: "vuln.research.plan", label: "Vulnerability lookups planned", status: "completed" }
+
+    case "vuln.research.started":
+      return { id: "vuln.research", label: "Searching NVD/CVE databases...", status: "active" }
+
+    case "vuln.research.completed":
+      return {
+        id: "vuln.research",
+        label: "Vulnerability research completed",
+        detail: getVulnerabilityResearchDetail(event),
+        status: "completed",
+      }
+
     case "planner.started":
       return { id: "planner", label: "Planning advanced checks...", status: "active" }
 
@@ -547,6 +564,16 @@ function getContractsListDetail(event: ScanWorkflowEvent) {
 function getAttemptStepId(prefix: "retry", event: ScanWorkflowEvent) {
   const contracts = getStringArray(event.metadata.contracts)
   return contracts?.length ? `${prefix}:${contracts.join("|")}` : `${prefix}:${event.timestamp}`
+}
+
+function getVulnerabilityResearchDetail(event: ScanWorkflowEvent) {
+  const queryCount = typeof event.metadata.query_count === "number" ? event.metadata.query_count : null
+  const cveCount = typeof event.metadata.cve_match_count === "number" ? event.metadata.cve_match_count : null
+
+  if (queryCount === null && cveCount === null) return undefined
+  if (queryCount !== null && cveCount !== null) return `${queryCount} queries · ${cveCount} CVE matches`
+  if (queryCount !== null) return `${queryCount} queries`
+  return `${cveCount} CVE matches`
 }
 
 function getStringArray(value: unknown) {

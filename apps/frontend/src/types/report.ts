@@ -50,6 +50,25 @@ export type EnrichedReportCategoryResponse = {
   findings: EnrichedFindingResponse[]
 }
 
+export type ReportCheckStatus = "passed" | "failed" | "not_run"
+
+export type ReportCheckResponse = {
+  id: string
+  title: string
+  status: ReportCheckStatus
+  detail: string
+  source: string | null
+}
+
+export type ReportCheckCategoryResponse = {
+  name: string
+  slug: string
+  passed: number
+  failed: number
+  not_run: number
+  checks: ReportCheckResponse[]
+}
+
 export type EnrichedReportResponse = {
   scan_id: string
   target: string
@@ -62,6 +81,7 @@ export type EnrichedReportResponse = {
   completed_at: string | null
   executive_summary: string | null
   quick_wins: string[]
+  check_categories: ReportCheckCategoryResponse[]
 }
 
 export type SeverityChartDatum = {
@@ -88,6 +108,10 @@ export type ScanWorkflowEventType =
   | "scan.started"
   | "baseline.started"
   | "baseline.completed"
+  | "vuln.research.planning.started"
+  | "vuln.research.planning.completed"
+  | "vuln.research.started"
+  | "vuln.research.completed"
   | "planner.started"
   | "planner.completed"
   | "contracts.selected"

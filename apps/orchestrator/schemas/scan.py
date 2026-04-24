@@ -150,6 +150,23 @@ class EnrichedReportCategoryResponse(BaseModel):
     findings: list[EnrichedFindingResponse]
 
 
+class ReportCheckResponse(BaseModel):
+    id: str
+    title: str
+    status: str
+    detail: str
+    source: str | None = None
+
+
+class ReportCheckCategoryResponse(BaseModel):
+    name: str
+    slug: str
+    passed: int
+    failed: int
+    not_run: int
+    checks: list[ReportCheckResponse]
+
+
 class EnrichedReportResponse(BaseModel):
     scan_id: str
     target: str
@@ -162,3 +179,4 @@ class EnrichedReportResponse(BaseModel):
     completed_at: datetime | None
     executive_summary: str | None = None
     quick_wins: list[str] = Field(default_factory=list)
+    check_categories: list[ReportCheckCategoryResponse] = Field(default_factory=list)

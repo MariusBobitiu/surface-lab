@@ -444,6 +444,11 @@ def merge_results_node(state: EnrichedReportGraphState) -> dict:
         state["scan"],
         merged_findings,
         enriched_findings,
+        steps=state.get("steps", []),
+        executed_contracts=state.get("executed_contracts", []),
+        vulnerability_research_plan=state.get("vulnerability_research_plan"),
+        vulnerability_research_results=state.get("vulnerability_research_results", []),
+        baseline_context=state.get("baseline_context"),
     )
 
     _publish_event(
