@@ -7,7 +7,13 @@ import grpc
 
 from grpc_clients.nextjs_stack_client import is_nextjs_stack_enabled, run_nextjs_stack
 from grpc_clients.wp_stack_client import is_wp_stack_enabled, run_wordpress_stack
-from schemas.planner import AdvancedContractExecutionResult, AdvancedContractFinding, AdvancedExecutionPlan, PlannerSelection
+from schemas.planner import (
+    AdvancedContractExecutionResult,
+    AdvancedContractFinding,
+    AdvancedExecutionPlan,
+    PlannerSelection,
+    VulnerabilityResearchResult,
+)
 from schemas.scan import FindingResponse
 from services.baseline_context import BaselineContext
 from services.contracts import AdvancedScanContract, get_advanced_scan_contract, list_advanced_scan_contracts
@@ -32,6 +38,7 @@ class PartialAdvancedScanError(Exception):
 def execute_advanced_scan_plan(
     planner_result: PlannerSelection | AdvancedExecutionPlan,
     baseline_context: BaselineContext,
+    vulnerability_research: list[VulnerabilityResearchResult] | None = None,
     scan: dict | None = None,
     scan_id: str | None = None,
 ) -> list[AdvancedContractExecutionResult]:
@@ -65,7 +72,7 @@ def execute_advanced_scan_plan(
                 },
             )
 
-        result = _execute_contract_with_timeout(contract, baseline_context, scan)
+        result = _execute_contract_with_timeout(contract, baseline_context, vulnerability_research or [], scan)
         results.append(result)
 
         if scan_id is not None:
@@ -271,12 +278,13 @@ def replace_advanced_results(
 def _execute_contract_with_timeout(
     contract: AdvancedScanContract,
     baseline_context: BaselineContext,
+    vulnerability_research: list[VulnerabilityResearchResult],
     scan: dict | None,
 ) -> AdvancedContractExecutionResult:
     started_at = time.monotonic()
 
     executor = ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(_dispatch_contract, contract, baseline_context, scan)
+    future = executor.submit(_dispatch_contract, contract, baseline_context, vulnerability_research, scan)
 
     try:
         result = future.result(timeout=contract.timeout_seconds)
@@ -339,6 +347,7 @@ def _execute_contract_with_timeout(
 def _dispatch_contract(
     contract: AdvancedScanContract,
     baseline_context: BaselineContext,
+    vulnerability_research: list[VulnerabilityResearchResult],
     scan: dict | None,
 ) -> AdvancedContractExecutionResult:
     handlers = {
@@ -355,12 +364,13 @@ def _dispatch_contract(
     if handler is None:
         raise RuntimeError(f"No handler registered for contract {contract.name}")
 
-    return handler(contract, baseline_context, scan)
+    return handler(contract, baseline_context, vulnerability_research, scan)
 
 
 def _run_wordpress_contract(
     contract: AdvancedScanContract,
     baseline_context: BaselineContext,
+    vulnerability_research: list[VulnerabilityResearchResult],
     scan: dict | None,
 ) -> AdvancedContractExecutionResult:
     matched_signals = _match_trigger_signals(contract, baseline_context)
@@ -376,6 +386,7 @@ def _run_wordpress_contract(
                     "baseline_findings": baseline_context.planner_finding_summary(limit=12),
                     "wordpress_version": baseline_context.signal_value("framework.wordpress.version"),
                     "technology_summary": baseline_context.signal_value("technology.summary", {}),
+                    "vulnerability_research": [item.model_dump() for item in vulnerability_research],
                     "baseline_finding_count": len(baseline_context.findings),
                     "canonical_target": baseline_context.canonical_url,
                     "redirected": baseline_context.redirected,
@@ -454,6 +465,7 @@ def _run_wordpress_contract(
 def _run_nextjs_contract(
     contract: AdvancedScanContract,
     baseline_context: BaselineContext,
+    vulnerability_research: list[VulnerabilityResearchResult],
     scan: dict | None,
 ) -> AdvancedContractExecutionResult:
     matched_signals = _match_trigger_signals(contract, baseline_context)
@@ -474,6 +486,7 @@ def _run_nextjs_contract(
                     "baseline_signals": baseline_context.planner_signal_summary(),
                     "baseline_findings": baseline_context.planner_finding_summary(limit=12),
                     "next_version": baseline_context.signal_value("framework.nextjs.version"),
+                    "vulnerability_research": [item.model_dump() for item in vulnerability_research],
                     "baseline_finding_count": len(baseline_context.findings),
                     "canonical_target": baseline_context.canonical_url,
                     "redirected": baseline_context.redirected,
@@ -558,6 +571,7 @@ def _run_nextjs_contract(
 def _run_generic_http_contract(
     contract: AdvancedScanContract,
     baseline_context: BaselineContext,
+    vulnerability_research: list[VulnerabilityResearchResult],
     scan: dict | None,
 ) -> AdvancedContractExecutionResult:
     matched_signals = _match_trigger_signals(contract, baseline_context)
@@ -573,6 +587,7 @@ def _run_generic_http_contract(
             "technology_summary": baseline_context.signal_value("technology.summary", {}),
             "baseline_signals": baseline_context.planner_signal_summary(),
             "baseline_findings": baseline_context.planner_finding_summary(limit=12),
+            "vulnerability_research": [item.model_dump() for item in vulnerability_research],
             "target": _resolve_execution_target(scan, baseline_context),
             "canonical_target": baseline_context.canonical_url,
         },

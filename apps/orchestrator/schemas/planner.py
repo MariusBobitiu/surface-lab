@@ -10,6 +10,27 @@ class PlannerSelection(BaseModel):
     confidence: Literal["low", "medium", "high"]
 
 
+class VulnerabilityResearchQuery(BaseModel):
+    product: str
+    version: str | None = None
+    query_keywords: list[str] = Field(default_factory=list)
+    rationale: str = ""
+
+
+class VulnerabilityResearchPlan(BaseModel):
+    queries: list[VulnerabilityResearchQuery] = Field(default_factory=list)
+    reasoning_summary: str
+    confidence: Literal["low", "medium", "high"]
+
+
+class VulnerabilityResearchResult(BaseModel):
+    product: str
+    version: str | None = None
+    query_keywords: list[str] = Field(default_factory=list)
+    cpe_matches: list[dict[str, Any]] = Field(default_factory=list)
+    cve_matches: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class AdvancedExecutionPlan(BaseModel):
     confidence: Literal["low", "medium", "high"]
     raw_selected_contracts: list[str] = Field(default_factory=list)

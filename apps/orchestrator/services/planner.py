@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 def plan_advanced_scans(
     baseline_context: BaselineContext,
     contracts: list[AdvancedScanContract],
+    vulnerability_research: list[dict] | None = None,
     previous_planner_result: PlannerSelection | None = None,
     failed_contracts: list[str] | None = None,
     advanced_results: list[AdvancedContractExecutionResult] | None = None,
@@ -24,7 +25,14 @@ def plan_advanced_scans(
     if not OLLAMA_ENABLED:
         return fallback
 
-    prompt = _build_prompt(baseline_context, contracts, previous_planner_result, failed_contracts or [], advanced_results or [])
+    prompt = _build_prompt(
+        baseline_context,
+        contracts,
+        vulnerability_research or [],
+        previous_planner_result,
+        failed_contracts or [],
+        advanced_results or [],
+    )
     base_url = _normalize_ollama_base_url(OLLAMA_BASE_URL)
 
     try:
@@ -71,6 +79,7 @@ def plan_advanced_scans(
 def _build_prompt(
     baseline_context: BaselineContext,
     contracts: list[AdvancedScanContract],
+    vulnerability_research: list[dict],
     previous_planner_result: PlannerSelection | None,
     failed_contracts: list[str],
     advanced_results: list[AdvancedContractExecutionResult],
@@ -143,6 +152,9 @@ Baseline findings:
 
 Selected baseline evidence:
 {json.dumps(compact_evidence, indent=2)}
+
+Pre-specialist vulnerability research context (NVD/CVE lookup summary):
+{json.dumps(vulnerability_research[:6], indent=2)}
 {replan_context}
 """
 
@@ -236,8 +248,28 @@ def _build_fallback_plan(baseline_context: BaselineContext) -> PlannerSelection:
         for key in (
             "framework.wordpress",
             "framework.nextjs",
+            "framework.react",
+            "framework.vue",
+            "framework.angular",
+            "framework.nuxt",
+            "framework.sveltekit",
+            "framework.django",
+            "framework.dotnet",
+            "framework.vite",
+            "framework.remix",
+            "framework.wix",
             "assets.next_static",
             "assets.js_bundle",
+            "tooling.supabase",
+            "tooling.mongodb",
+            "tooling.neon",
+            "tooling.s3_public",
+            "tooling.cloudflare_r2_public",
+            "hosting.cloudflare",
+            "hosting.vercel",
+            "hosting.netlify",
+            "hosting.render",
+            "hosting.flyio",
             "surface.api",
             "surface.login",
             "surface.admin",

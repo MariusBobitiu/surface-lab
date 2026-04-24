@@ -9,10 +9,12 @@ from config.settings import NVD_ENABLED, OLLAMA_ENABLED
 from graph.nodes import (
     analyze_baseline_node,
     complete_node,
+    execute_vulnerability_research_node,
     evaluate_contract_results_node,
     execute_generic_only_node,
     execute_selected_contracts_node,
     merge_results_node,
+    plan_vulnerability_research_node,
     plan_contracts_node,
     replan_contracts_node,
     retry_failed_contracts_node,
@@ -61,6 +63,8 @@ def build_enriched_report_graph():
     builder = StateGraph(EnrichedReportGraphState)
     builder.add_node("run_baseline_node", _logged_node("run_baseline_node", run_baseline_node))
     builder.add_node("analyze_baseline_node", _logged_node("analyze_baseline_node", analyze_baseline_node))
+    builder.add_node("plan_vulnerability_research_node", _logged_node("plan_vulnerability_research_node", plan_vulnerability_research_node))
+    builder.add_node("execute_vulnerability_research_node", _logged_node("execute_vulnerability_research_node", execute_vulnerability_research_node))
     builder.add_node("plan_contracts_node", _logged_node("plan_contracts_node", plan_contracts_node))
     builder.add_node("execute_selected_contracts_node", _logged_node("execute_selected_contracts_node", execute_selected_contracts_node))
     builder.add_node("execute_generic_only_node", _logged_node("execute_generic_only_node", execute_generic_only_node))
@@ -73,7 +77,9 @@ def build_enriched_report_graph():
 
     builder.add_edge(START, "run_baseline_node")
     builder.add_edge("run_baseline_node", "analyze_baseline_node")
-    builder.add_edge("analyze_baseline_node", "plan_contracts_node")
+    builder.add_edge("analyze_baseline_node", "plan_vulnerability_research_node")
+    builder.add_edge("plan_vulnerability_research_node", "execute_vulnerability_research_node")
+    builder.add_edge("execute_vulnerability_research_node", "plan_contracts_node")
     builder.add_conditional_edges(
         "plan_contracts_node",
         route_after_plan,

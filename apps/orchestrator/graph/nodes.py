@@ -21,6 +21,7 @@ from services.llm import summarize_enriched_report
 from services.planner import plan_advanced_scans
 from services.reports import build_enriched_report, build_scan_report
 from services.scans import fetch_evidence, fetch_findings, fetch_scan, fetch_scan_steps, fetch_signals
+from services.vulnerability_research import execute_vulnerability_research, plan_vulnerability_research
 
 
 logger = logging.getLogger(__name__)
@@ -99,11 +100,77 @@ def analyze_baseline_node(state: EnrichedReportGraphState) -> dict:
     }
 
 
+def plan_vulnerability_research_node(state: EnrichedReportGraphState) -> dict:
+    logger.info("LangGraph node: plan_vulnerability_research_node")
+    _publish_event(state, "vuln.research.planning.started", "Planning vulnerability research targets.")
+
+    plan = plan_vulnerability_research(state["baseline_context"])
+    notes = list(state.get("execution_notes", []))
+    notes.append(
+        f"Vulnerability research planner selected {len(plan.queries)} query targets with confidence={plan.confidence}."
+    )
+
+    _publish_event(
+        state,
+        "vuln.research.planning.completed",
+        "Vulnerability research target planning completed.",
+        {
+            "confidence": plan.confidence,
+            "query_count": len(plan.queries),
+        },
+    )
+
+    return {
+        "vulnerability_research_plan": plan,
+        "execution_notes": notes,
+    }
+
+
+def execute_vulnerability_research_node(state: EnrichedReportGraphState) -> dict:
+    logger.info("LangGraph node: execute_vulnerability_research_node")
+    _publish_event(state, "vuln.research.started", "Running vulnerability research lookups.")
+
+    plan = state.get("vulnerability_research_plan")
+    notes = list(state.get("execution_notes", []))
+
+    if plan is None:
+        notes.append("Vulnerability research skipped because no research plan was available.")
+        return {
+            "vulnerability_research_results": [],
+            "execution_notes": notes,
+        }
+
+    results = execute_vulnerability_research(plan, state.get("nvd_enabled", False))
+    total_cves = sum(len(item.cve_matches) for item in results)
+    notes.append(
+        f"Vulnerability research executed {len(results)} lookups and returned {total_cves} CVE matches."
+    )
+
+    _publish_event(
+        state,
+        "vuln.research.completed",
+        "Vulnerability research lookups completed.",
+        {
+            "query_count": len(results),
+            "cve_match_count": total_cves,
+        },
+    )
+
+    return {
+        "vulnerability_research_results": results,
+        "execution_notes": notes,
+    }
+
+
 def plan_contracts_node(state: EnrichedReportGraphState) -> dict:
     logger.info("LangGraph node: plan_contracts_node")
     _publish_event(state, "planner.started", "Planner execution started.")
 
-    planner_result = plan_advanced_scans(baseline_context=state["baseline_context"], contracts=list_advanced_scan_contracts())
+    planner_result = plan_advanced_scans(
+        baseline_context=state["baseline_context"],
+        contracts=list_advanced_scan_contracts(),
+        vulnerability_research=[result.model_dump() for result in state.get("vulnerability_research_results", [])],
+    )
     notes = list(state.get("execution_notes", []))
     notes.append(f"Planner selected {planner_result.selected_contracts or []} with confidence={planner_result.confidence}.")
 
@@ -161,6 +228,7 @@ def execute_selected_contracts_node(state: EnrichedReportGraphState) -> dict:
     advanced_results = execute_advanced_scan_plan(
         planner_result=execution_plan,
         baseline_context=state["baseline_context"],
+        vulnerability_research=state.get("vulnerability_research_results", []),
         scan=state["scan"],
         scan_id=state["scan_id"],
     )
@@ -214,6 +282,7 @@ def execute_generic_only_node(state: EnrichedReportGraphState) -> dict:
     advanced_results = execute_advanced_scan_plan(
         planner_result=execution_plan,
         baseline_context=state["baseline_context"],
+        vulnerability_research=state.get("vulnerability_research_results", []),
         scan=state["scan"],
         scan_id=state["scan_id"],
     )
@@ -290,6 +359,7 @@ def retry_failed_contracts_node(state: EnrichedReportGraphState) -> dict:
     retry_results = execute_advanced_scan_plan(
         planner_result=retry_plan,
         baseline_context=state["baseline_context"],
+        vulnerability_research=state.get("vulnerability_research_results", []),
         scan=state["scan"],
         scan_id=state["scan_id"],
     )
@@ -330,6 +400,7 @@ def replan_contracts_node(state: EnrichedReportGraphState) -> dict:
     planner_result = plan_advanced_scans(
         baseline_context=state["baseline_context"],
         contracts=list_advanced_scan_contracts(),
+        vulnerability_research=[result.model_dump() for result in state.get("vulnerability_research_results", [])],
         previous_planner_result=state["planner_result"],
         failed_contracts=state.get("failed_contracts", []),
         advanced_results=state.get("advanced_results", []),
