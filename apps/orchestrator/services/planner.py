@@ -255,11 +255,15 @@ def _build_fallback_plan(baseline_context: BaselineContext) -> PlannerSelection:
             "framework.sveltekit",
             "framework.django",
             "framework.dotnet",
+            "framework.laravel",
             "framework.vite",
             "framework.remix",
             "framework.wix",
+            "language.php",
             "assets.next_static",
             "assets.js_bundle",
+            "platform.shopify",
+            "ecommerce.storefront",
             "tooling.supabase",
             "tooling.mongodb",
             "tooling.neon",
@@ -280,12 +284,25 @@ def _build_fallback_plan(baseline_context: BaselineContext) -> PlannerSelection:
         selected_contracts.append("wordpress.v1.run_stack")
     if baseline_context.signal_is_true("framework.nextjs") or baseline_context.signal_is_true("assets.next_static"):
         selected_contracts.append("nextjs.v1.run_stack")
+    if baseline_context.signal_is_true("framework.laravel"):
+        selected_contracts.append("laravel.v1.verify_stack")
+    if baseline_context.signal_is_true("platform.shopify") or baseline_context.signal_is_true("ecommerce.storefront"):
+        selected_contracts.append("shopify.v1.verify_stack")
+    if (
+        baseline_context.signal_is_true("language.php")
+        and not baseline_context.signal_is_true("framework.wordpress")
+        and not baseline_context.signal_is_true("framework.laravel")
+    ):
+        selected_contracts.append("php.v1.verify_stack")
     if has_routing_signal:
         selected_contracts.append("generic_http.v1.run_stack")
 
     skipped_contracts = [
         "wordpress.v1.run_stack",
         "nextjs.v1.run_stack",
+        "laravel.v1.verify_stack",
+        "php.v1.verify_stack",
+        "shopify.v1.verify_stack",
         "generic_http.v1.run_stack",
     ]
     selected_deduped = _dedupe_preserving_order(selected_contracts)

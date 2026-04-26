@@ -12,6 +12,9 @@ SCANNER_GO_OUT_DIR="$ROOT_DIR/services/scanner/transport/grpc"
 BASELINE_GO_OUT_DIR="$ROOT_DIR/services/service-baseline/transport/grpc"
 WP_STACK_GO_OUT_DIR="$ROOT_DIR/services/wp-stack/transport/grpc"
 NEXTJS_STACK_GO_OUT_DIR="$ROOT_DIR/services/nextjs-stack/transport/grpc"
+LARAVEL_STACK_GO_OUT_DIR="$ROOT_DIR/services/laravel-stack/transport/grpc"
+PHP_STACK_GO_OUT_DIR="$ROOT_DIR/services/php-stack/transport/grpc"
+SHOPIFY_STACK_GO_OUT_DIR="$ROOT_DIR/services/ecommerce-stack/transport/grpc"
 PYTHON_OUT_DIR="$ROOT_DIR/apps/orchestrator/grpc_clients/v1"
 
 echo "Generating protobuf files..."
@@ -91,9 +94,18 @@ case "$TARGET" in
     generate_go "$PROTO_DIR/wp_stack.proto" "$WP_STACK_GO_OUT_DIR"
     echo "Generating Go stubs for nextjs-stack..."
     generate_go "$PROTO_DIR/nextjs_stack.proto" "$NEXTJS_STACK_GO_OUT_DIR"
+    echo "Generating Go stubs for laravel-stack..."
+    generate_go "$PROTO_DIR/laravel_stack.proto" "$LARAVEL_STACK_GO_OUT_DIR"
+    echo "Generating Go stubs for php-stack..."
+    generate_go "$PROTO_DIR/php_stack.proto" "$PHP_STACK_GO_OUT_DIR"
+    echo "Generating Go stubs for shopify-stack..."
+    generate_go "$PROTO_DIR/shopify_stack.proto" "$SHOPIFY_STACK_GO_OUT_DIR"
     generate_python_stubs "$PROTO_DIR/tool.proto" "tool"
     generate_python_stubs "$PROTO_DIR/wp_stack.proto" "wp_stack"
     generate_python_stubs "$PROTO_DIR/nextjs_stack.proto" "nextjs_stack"
+    generate_python_stubs "$PROTO_DIR/laravel_stack.proto" "laravel_stack"
+    generate_python_stubs "$PROTO_DIR/php_stack.proto" "php_stack"
+    generate_python_stubs "$PROTO_DIR/shopify_stack.proto" "shopify_stack"
     ;;
   scanner)
     echo "Generating Go stubs for scanner..."
@@ -114,9 +126,24 @@ case "$TARGET" in
     generate_go "$PROTO_DIR/nextjs_stack.proto" "$NEXTJS_STACK_GO_OUT_DIR"
     generate_python_stubs "$PROTO_DIR/nextjs_stack.proto" "nextjs_stack"
     ;;
+  laravel-stack)
+    echo "Generating Go stubs for laravel-stack..."
+    generate_go "$PROTO_DIR/laravel_stack.proto" "$LARAVEL_STACK_GO_OUT_DIR"
+    generate_python_stubs "$PROTO_DIR/laravel_stack.proto" "laravel_stack"
+    ;;
+  php-stack)
+    echo "Generating Go stubs for php-stack..."
+    generate_go "$PROTO_DIR/php_stack.proto" "$PHP_STACK_GO_OUT_DIR"
+    generate_python_stubs "$PROTO_DIR/php_stack.proto" "php_stack"
+    ;;
+  shopify-stack)
+    echo "Generating Go stubs for shopify-stack..."
+    generate_go "$PROTO_DIR/shopify_stack.proto" "$SHOPIFY_STACK_GO_OUT_DIR"
+    generate_python_stubs "$PROTO_DIR/shopify_stack.proto" "shopify_stack"
+    ;;
   *)
     echo "Unknown target: $TARGET"
-    echo "Usage: scripts/proto-gen.sh [all|scanner|service-baseline|wp-stack|nextjs-stack]"
+    echo "Usage: scripts/proto-gen.sh [all|scanner|service-baseline|wp-stack|nextjs-stack|laravel-stack|php-stack|shopify-stack]"
     exit 1
     ;;
 esac

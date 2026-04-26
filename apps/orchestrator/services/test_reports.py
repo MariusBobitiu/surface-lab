@@ -122,6 +122,43 @@ class ReportMergingTests(unittest.TestCase):
         self.assertEqual(nextjs_category.findings[0].title, "Next.js chunk references a source map")
         self.assertIn("source maps", nextjs_category.findings[0].remediation_summary)
 
+    def test_advanced_shopify_findings_are_mapped_into_report(self) -> None:
+        created_at = datetime.now(timezone.utc)
+        scan = {
+            "id": "scan-3",
+            "target": "https://example.com",
+            "canonical_target": "https://shop.example.com",
+            "status": "completed",
+            "created_at": created_at,
+            "completed_at": created_at,
+        }
+        baseline_findings: list[FindingResponse] = []
+        advanced_results = [
+            AdvancedContractExecutionResult(
+                contract="shopify.v1.verify_stack",
+                status="completed",
+                findings=[
+                    AdvancedContractFinding(
+                        tool_name="shopify.v1.verify_stack",
+                        type="missing-storefront-security-headers",
+                        category="shopify_posture",
+                        title="Storefront security headers are missing",
+                        severity="low",
+                        confidence="high",
+                        evidence="Missing headers: Referrer-Policy",
+                        details={"missing_headers": ["Referrer-Policy"]},
+                    )
+                ],
+                metadata={},
+            )
+        ]
+
+        merged_findings = merge_advanced_findings(baseline_findings, advanced_results, scan)
+        report = build_scan_report(scan, merged_findings)
+
+        category_names = [category.name for category in report.categories]
+        self.assertIn("Shopify Storefront", category_names)
+
 
 if __name__ == "__main__":
     unittest.main()

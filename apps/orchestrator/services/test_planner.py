@@ -157,6 +157,40 @@ class AdvancedPlannerTests(unittest.TestCase):
         self.assertEqual(result.selected_contracts, [])
         self.assertIn("generic_http.v1.run_stack", result.skipped_contracts)
 
+    def test_php_fallback_prefers_laravel_over_generic_php_specialist(self) -> None:
+        baseline_context = build_baseline_context(
+            scan={"id": "scan-1", "target": "https://example.com"},
+            steps=[],
+            findings=[],
+            signals=[
+                SignalResponse(
+                    id="s-1",
+                    tool_name="fingerprint/v1",
+                    key="framework.laravel",
+                    value=True,
+                    confidence="high",
+                    source="fingerprint.html",
+                    created_at="2026-04-22T10:00:00Z",
+                ),
+                SignalResponse(
+                    id="s-2",
+                    tool_name="fingerprint/v1",
+                    key="language.php",
+                    value=True,
+                    confidence="high",
+                    source="fingerprint.headers",
+                    created_at="2026-04-22T10:00:00Z",
+                ),
+            ],
+            evidence=[],
+        )
+
+        with patch("services.planner.OLLAMA_ENABLED", False):
+            result = plan_advanced_scans(baseline_context, list_advanced_scan_contracts())
+
+        self.assertIn("laravel.v1.verify_stack", result.selected_contracts)
+        self.assertNotIn("php.v1.verify_stack", result.selected_contracts)
+
 
 if __name__ == "__main__":
     unittest.main()

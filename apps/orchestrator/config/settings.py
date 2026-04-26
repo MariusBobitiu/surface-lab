@@ -36,6 +36,14 @@ def _get_str(name: str, default: str = "") -> str:
     return os.getenv(name, default).strip()
 
 
+def _get_str_alias(names: list[str], default: str = "") -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and value.strip():
+            return value.strip()
+    return default
+
+
 def _get_required_str(name: str) -> str:
     value = _get_str(name)
     if not value:
@@ -72,6 +80,30 @@ def _get_nextjs_stack_auth_mode() -> str:
     mode = _get_str("NEXTJS_STACK_GRPC_AUTH_MODE", "bearer").lower()
     if mode not in {"bearer", "x-service-token"}:
         raise RuntimeError("NEXTJS_STACK_GRPC_AUTH_MODE must be one of: bearer, x-service-token")
+
+    return mode
+
+
+def _get_laravel_stack_auth_mode() -> str:
+    mode = _get_str("LARAVEL_STACK_GRPC_AUTH_MODE", "bearer").lower()
+    if mode not in {"bearer", "x-service-token"}:
+        raise RuntimeError("LARAVEL_STACK_GRPC_AUTH_MODE must be one of: bearer, x-service-token")
+
+    return mode
+
+
+def _get_php_stack_auth_mode() -> str:
+    mode = _get_str("PHP_STACK_GRPC_AUTH_MODE", "bearer").lower()
+    if mode not in {"bearer", "x-service-token"}:
+        raise RuntimeError("PHP_STACK_GRPC_AUTH_MODE must be one of: bearer, x-service-token")
+
+    return mode
+
+
+def _get_shopify_stack_auth_mode() -> str:
+    mode = _get_str("SHOPIFY_STACK_GRPC_AUTH_MODE", "bearer").lower()
+    if mode not in {"bearer", "x-service-token"}:
+        raise RuntimeError("SHOPIFY_STACK_GRPC_AUTH_MODE must be one of: bearer, x-service-token")
 
     return mode
 
@@ -124,6 +156,54 @@ def _get_nextjs_stack_tls_settings() -> tuple[bool, str, str]:
     return enabled, ca_file, server_name
 
 
+def _get_laravel_stack_tls_settings() -> tuple[bool, str, str]:
+    enabled = _get_bool("LARAVEL_STACK_GRPC_TLS_ENABLED", False)
+    ca_file = _get_str("LARAVEL_STACK_GRPC_TLS_CA_FILE")
+    server_name = _get_str("LARAVEL_STACK_GRPC_TLS_SERVER_NAME")
+
+    if enabled and not ca_file:
+        raise RuntimeError("LARAVEL_STACK_GRPC_TLS_CA_FILE is required when LARAVEL_STACK_GRPC_TLS_ENABLED=true")
+
+    if enabled and ca_file:
+        ca_path = Path(ca_file)
+        if not ca_path.exists():
+            raise RuntimeError(f"LARAVEL_STACK_GRPC_TLS_CA_FILE does not exist: {ca_file}")
+
+    return enabled, ca_file, server_name
+
+
+def _get_php_stack_tls_settings() -> tuple[bool, str, str]:
+    enabled = _get_bool("PHP_STACK_GRPC_TLS_ENABLED", False)
+    ca_file = _get_str("PHP_STACK_GRPC_TLS_CA_FILE")
+    server_name = _get_str("PHP_STACK_GRPC_TLS_SERVER_NAME")
+
+    if enabled and not ca_file:
+        raise RuntimeError("PHP_STACK_GRPC_TLS_CA_FILE is required when PHP_STACK_GRPC_TLS_ENABLED=true")
+
+    if enabled and ca_file:
+        ca_path = Path(ca_file)
+        if not ca_path.exists():
+            raise RuntimeError(f"PHP_STACK_GRPC_TLS_CA_FILE does not exist: {ca_file}")
+
+    return enabled, ca_file, server_name
+
+
+def _get_shopify_stack_tls_settings() -> tuple[bool, str, str]:
+    enabled = _get_bool("SHOPIFY_STACK_GRPC_TLS_ENABLED", False)
+    ca_file = _get_str("SHOPIFY_STACK_GRPC_TLS_CA_FILE")
+    server_name = _get_str("SHOPIFY_STACK_GRPC_TLS_SERVER_NAME")
+
+    if enabled and not ca_file:
+        raise RuntimeError("SHOPIFY_STACK_GRPC_TLS_CA_FILE is required when SHOPIFY_STACK_GRPC_TLS_ENABLED=true")
+
+    if enabled and ca_file:
+        ca_path = Path(ca_file)
+        if not ca_path.exists():
+            raise RuntimeError(f"SHOPIFY_STACK_GRPC_TLS_CA_FILE does not exist: {ca_file}")
+
+    return enabled, ca_file, server_name
+
+
 def _get_orchestrator_api_key() -> str:
     required = _get_bool("ORCHESTRATOR_REQUIRE_API_KEY", True)
     api_key = _get_str("ORCHESTRATOR_API_KEY")
@@ -171,6 +251,29 @@ NEXTJS_STACK_GRPC_ADDRESS = _get_str("NEXTJS_STACK_GRPC_ADDRESS", "localhost:500
 NEXTJS_STACK_SERVICE_TOKEN = _get_str("NEXTJS_STACK_SERVICE_TOKEN")
 NEXTJS_STACK_GRPC_AUTH_MODE = _get_nextjs_stack_auth_mode()
 NEXTJS_STACK_GRPC_TLS_ENABLED, NEXTJS_STACK_GRPC_TLS_CA_FILE, NEXTJS_STACK_GRPC_TLS_SERVER_NAME = _get_nextjs_stack_tls_settings()
+LARAVEL_STACK_ENABLED = _get_bool("LARAVEL_STACK_ENABLED", False)
+LARAVEL_STACK_GRPC_ADDRESS = _get_str_alias(["LARAVEL_STACK_GRPC_ADDRESS", "LARAVEL_STACK_GRPC_ADDR"], "localhost:50063")
+LARAVEL_STACK_SERVICE_TOKEN = _get_str("LARAVEL_STACK_SERVICE_TOKEN")
+LARAVEL_STACK_GRPC_AUTH_MODE = _get_laravel_stack_auth_mode()
+LARAVEL_STACK_GRPC_TLS_ENABLED, LARAVEL_STACK_GRPC_TLS_CA_FILE, LARAVEL_STACK_GRPC_TLS_SERVER_NAME = _get_laravel_stack_tls_settings()
+PHP_STACK_ENABLED = _get_bool("PHP_STACK_ENABLED", False)
+PHP_STACK_GRPC_ADDRESS = _get_str_alias(["PHP_STACK_GRPC_ADDRESS", "PHP_STACK_GRPC_ADDR"], "localhost:50064")
+PHP_STACK_SERVICE_TOKEN = _get_str("PHP_STACK_SERVICE_TOKEN")
+PHP_STACK_GRPC_AUTH_MODE = _get_php_stack_auth_mode()
+PHP_STACK_GRPC_TLS_ENABLED, PHP_STACK_GRPC_TLS_CA_FILE, PHP_STACK_GRPC_TLS_SERVER_NAME = _get_php_stack_tls_settings()
+SHOPIFY_STACK_ENABLED = _get_bool("SHOPIFY_STACK_ENABLED", False)
+SHOPIFY_STACK_GRPC_ADDRESS = _get_str_alias(
+    [
+        "SHOPIFY_STACK_GRPC_ADDRESS",
+        "SHOPIFY_STACK_GRPC_ADDR",
+        "ECOMMERCE_STACK_GRPC_ADDRESS",
+        "ECOMMERCE_STACK_GRPC_ADDR",
+    ],
+    "localhost:50065",
+)
+SHOPIFY_STACK_SERVICE_TOKEN = _get_str("SHOPIFY_STACK_SERVICE_TOKEN")
+SHOPIFY_STACK_GRPC_AUTH_MODE = _get_shopify_stack_auth_mode()
+SHOPIFY_STACK_GRPC_TLS_ENABLED, SHOPIFY_STACK_GRPC_TLS_CA_FILE, SHOPIFY_STACK_GRPC_TLS_SERVER_NAME = _get_shopify_stack_tls_settings()
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 NVD_API_KEY = os.getenv("NVD_API_KEY", "").strip()
 NVD_ENABLED = _get_bool("NVD_ENABLED", bool(NVD_API_KEY))

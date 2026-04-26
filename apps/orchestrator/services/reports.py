@@ -36,6 +36,11 @@ CATEGORY_MAP = {
     "nextjs_surface": ("nextjs-stack", "Next.js Stack"),
     "nextjs_exposure": ("nextjs-stack", "Next.js Stack"),
     "nextjs_vulnerability": ("nextjs-stack", "Next.js Stack"),
+    "laravel_exposure": ("laravel-stack", "Laravel Stack"),
+    "laravel_debug": ("laravel-stack", "Laravel Stack"),
+    "php_exposure": ("php-stack", "PHP Stack"),
+    "php_posture": ("php-stack", "PHP Stack"),
+    "shopify_posture": ("shopify-stack", "Shopify Storefront"),
 }
 
 SEVERITY_ORDER = {
@@ -149,6 +154,12 @@ def _detect_stack(baseline_context: BaselineContext) -> str:
         return "WordPress"
     if baseline_context.signal_is_true("framework.nextjs"):
         return "Next.js"
+    if baseline_context.signal_is_true("framework.laravel"):
+        return "Laravel"
+    if baseline_context.signal_is_true("platform.shopify"):
+        return "Shopify"
+    if baseline_context.signal_is_true("language.php"):
+        return "PHP"
     if baseline_context.signal_is_true("framework.react"):
         return "React"
     if baseline_context.signal_is_true("framework.angular"):

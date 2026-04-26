@@ -31,9 +31,20 @@ This repo now includes production-leaning container assets for:
 - `frontend` is published on `localhost:${FRONTEND_PORT}`
 - `orchestrator` stays internal on the Compose network
 - `scanner` stays internal on the Compose network
+- `laravel-stack`, `php-stack`, and `ecommerce-stack` stay internal on the Compose network
 - `postgres` and `redis` stay internal on the Compose network
 
 If you need direct orchestrator access during local debugging, expose port `8000` temporarily in `infra/compose/docker-compose.yml` rather than changing the service contract.
+
+### Specialist Runtime Verification
+
+After Compose is up, validate specialist connectivity from inside the orchestrator container:
+
+```bash
+docker compose --env-file .env -f infra/compose/docker-compose.yml exec orchestrator sh -lc 'nc -z laravel-stack 50063 && nc -z php-stack 50064 && nc -z ecommerce-stack 50065'
+```
+
+If this passes, the orchestrator service discovery matches compose DNS and gRPC ports.
 
 ### Database initialization
 
@@ -82,6 +93,17 @@ docker compose up --build
   Usually `false` unless an API key is configured.
 - `OLLAMA_*`
   Optional local LLM integration, routed to `host.docker.internal` by default.
+
+### Specialist Contract Naming
+
+SurfaceLab specialist contracts now use `*.verify_stack` as the preferred naming convention to reflect safe external verification behavior.
+
+Legacy compatibility aliases remain enabled during transition:
+
+- `wordpress.v1.run_stack` -> `wordpress.v1.verify_stack`
+- `nextjs.v1.run_stack` -> `nextjs.v1.verify_stack`
+
+Both IDs are accepted. Execution de-duplicates aliases so the same specialist is not run twice when both IDs are selected.
 
 ### Scanner
 

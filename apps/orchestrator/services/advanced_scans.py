@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 import grpc
 
 from grpc_clients.nextjs_stack_client import is_nextjs_stack_enabled, run_nextjs_stack
+from grpc_clients.laravel_stack_client import is_laravel_stack_enabled, run_laravel_stack
+from grpc_clients.php_stack_client import is_php_stack_enabled, run_php_stack
+from grpc_clients.shopify_stack_client import is_shopify_stack_enabled, run_shopify_stack
 from grpc_clients.wp_stack_client import is_wp_stack_enabled, run_wordpress_stack
 from schemas.planner import (
     AdvancedContractExecutionResult,
@@ -16,7 +19,12 @@ from schemas.planner import (
 )
 from schemas.scan import FindingResponse
 from services.baseline_context import BaselineContext
-from services.contracts import AdvancedScanContract, get_advanced_scan_contract, list_advanced_scan_contracts
+from services.contracts import (
+    CONTRACT_ALIAS_GROUPS,
+    AdvancedScanContract,
+    get_advanced_scan_contract,
+    list_advanced_scan_contracts,
+)
 from services.event_bus import publish_scan_event
 
 
@@ -94,6 +102,11 @@ def execute_advanced_scan_plan(
 
 def build_advanced_execution_plan(planner_result: PlannerSelection) -> AdvancedExecutionPlan:
     raw_selected_contracts = _dedupe_preserving_order(planner_result.selected_contracts)
+    raw_selected_contracts = _suppress_alias_duplicates(raw_selected_contracts)
+    if "php.v1.verify_stack" in raw_selected_contracts and (
+        "wordpress.v1.run_stack" in raw_selected_contracts or "laravel.v1.verify_stack" in raw_selected_contracts
+    ):
+        raw_selected_contracts = [name for name in raw_selected_contracts if name != "php.v1.verify_stack"]
     executed_contracts = list(raw_selected_contracts)
     notes: list[str] = []
     generic_contract = "generic_http.v1.run_stack" if get_advanced_scan_contract("generic_http.v1.run_stack") else None
@@ -171,6 +184,8 @@ def analyze_baseline_findings(baseline_context: BaselineContext) -> dict:
 
     for contract in list_advanced_scan_contracts():
         if contract.name == "generic_http.v1.run_stack":
+            continue
+        if _is_secondary_alias_name(contract.name):
             continue
 
         matched_signals = _match_trigger_signals(contract, baseline_context)
@@ -352,7 +367,12 @@ def _dispatch_contract(
 ) -> AdvancedContractExecutionResult:
     handlers = {
         "wordpress.v1.run_stack": _run_wordpress_contract,
+        "wordpress.v1.verify_stack": _run_wordpress_contract,
         "nextjs.v1.run_stack": _run_nextjs_contract,
+        "nextjs.v1.verify_stack": _run_nextjs_contract,
+        "laravel.v1.verify_stack": _run_laravel_contract,
+        "php.v1.verify_stack": _run_php_contract,
+        "shopify.v1.verify_stack": _run_shopify_contract,
         "frontend_frameworks.v1.run_stack": _run_generic_http_contract,
         "backend_frameworks.v1.run_stack": _run_generic_http_contract,
         "data_services.v1.run_stack": _run_generic_http_contract,
@@ -594,6 +614,182 @@ def _run_generic_http_contract(
     )
 
 
+def _run_laravel_contract(
+    contract: AdvancedScanContract,
+    baseline_context: BaselineContext,
+    vulnerability_research: list[VulnerabilityResearchResult],
+    scan: dict | None,
+) -> AdvancedContractExecutionResult:
+    return _run_grpc_specialist_contract(
+        contract=contract,
+        baseline_context=baseline_context,
+        vulnerability_research=vulnerability_research,
+        scan=scan,
+        enabled_check=is_laravel_stack_enabled,
+        runner=run_laravel_stack,
+        default_category="laravel_exposure",
+        default_title="Laravel stack finding",
+        stack_metadata={
+            "technology_summary": baseline_context.signal_value("technology.summary", {}),
+            "laravel_version": baseline_context.signal_value("framework.laravel.version"),
+        },
+        stub_tool_name="advanced_laravel_stub",
+        stub_title="Laravel specialist scan path selected",
+        stub_evidence="Baseline signals selected Laravel verification checks.",
+    )
+
+
+def _run_php_contract(
+    contract: AdvancedScanContract,
+    baseline_context: BaselineContext,
+    vulnerability_research: list[VulnerabilityResearchResult],
+    scan: dict | None,
+) -> AdvancedContractExecutionResult:
+    return _run_grpc_specialist_contract(
+        contract=contract,
+        baseline_context=baseline_context,
+        vulnerability_research=vulnerability_research,
+        scan=scan,
+        enabled_check=is_php_stack_enabled,
+        runner=run_php_stack,
+        default_category="php_exposure",
+        default_title="PHP stack finding",
+        stack_metadata={
+            "technology_summary": baseline_context.signal_value("technology.summary", {}),
+            "php_version": baseline_context.signal_value("language.php.version"),
+        },
+        stub_tool_name="advanced_php_stub",
+        stub_title="PHP specialist scan path selected",
+        stub_evidence="Baseline signals selected PHP verification checks.",
+    )
+
+
+def _run_shopify_contract(
+    contract: AdvancedScanContract,
+    baseline_context: BaselineContext,
+    vulnerability_research: list[VulnerabilityResearchResult],
+    scan: dict | None,
+) -> AdvancedContractExecutionResult:
+    return _run_grpc_specialist_contract(
+        contract=contract,
+        baseline_context=baseline_context,
+        vulnerability_research=vulnerability_research,
+        scan=scan,
+        enabled_check=is_shopify_stack_enabled,
+        runner=run_shopify_stack,
+        default_category="shopify_posture",
+        default_title="Shopify stack finding",
+        stack_metadata={
+            "technology_summary": baseline_context.signal_value("technology.summary", {}),
+            "shopify_domain": baseline_context.signal_value("platform.shopify.domain"),
+        },
+        stub_tool_name="advanced_shopify_stub",
+        stub_title="Shopify specialist scan path selected",
+        stub_evidence="Baseline signals selected Shopify storefront verification checks.",
+    )
+
+
+def _run_grpc_specialist_contract(
+    contract: AdvancedScanContract,
+    baseline_context: BaselineContext,
+    vulnerability_research: list[VulnerabilityResearchResult],
+    scan: dict | None,
+    enabled_check,
+    runner,
+    default_category: str,
+    default_title: str,
+    stack_metadata: dict,
+    stub_tool_name: str,
+    stub_title: str,
+    stub_evidence: str,
+) -> AdvancedContractExecutionResult:
+    matched_signals = _match_trigger_signals(contract, baseline_context)
+    target = _resolve_execution_target(scan, baseline_context)
+
+    if target and enabled_check():
+        try:
+            response = runner(
+                target,
+                metadata={
+                    "matched_signals": matched_signals,
+                    "baseline_signals": baseline_context.planner_signal_summary(),
+                    "baseline_findings": baseline_context.planner_finding_summary(limit=12),
+                    "vulnerability_research": [item.model_dump() for item in vulnerability_research],
+                    "baseline_finding_count": len(baseline_context.findings),
+                    "canonical_target": baseline_context.canonical_url,
+                    "redirected": baseline_context.redirected,
+                    **stack_metadata,
+                },
+            )
+        except grpc.RpcError as exc:
+            logger.warning("%s gRPC call failed for %s: %s", contract.name, target, exc)
+            return AdvancedContractExecutionResult(
+                contract=contract.name,
+                status="failed",
+                metadata={
+                    "service_status": "grpc_error",
+                    "matched_signals": matched_signals,
+                    "target": target,
+                    "grpc_status": exc.code().name if exc.code() else None,
+                },
+                error=exc.details() or str(exc),
+            )
+        except RuntimeError as exc:
+            logger.warning("%s execution unavailable for %s: %s", contract.name, target, exc)
+        else:
+            return AdvancedContractExecutionResult(
+                contract=contract.name,
+                status=_normalize_contract_status(response.get("status")),
+                findings=[
+                    AdvancedContractFinding(
+                        tool_name=response.get("tool") or contract.name,
+                        type=item.get("type", "informational"),
+                        category=item.get("category", default_category),
+                        title=item.get("title", default_title),
+                        severity=item.get("severity", "info"),
+                        confidence=item.get("confidence", "medium"),
+                        evidence=item.get("evidence", ""),
+                        details=item.get("details") or {},
+                    )
+                    for item in response.get("findings", [])
+                ],
+                metadata={
+                    "service_status": "grpc",
+                    "matched_signals": matched_signals,
+                    "target": target,
+                    **(response.get("metadata") or {}),
+                },
+                error=response.get("error") or None,
+            )
+
+    return AdvancedContractExecutionResult(
+        contract=contract.name,
+        status="completed",
+        findings=[
+            AdvancedContractFinding(
+                tool_name=stub_tool_name,
+                type="fingerprint",
+                category=default_category,
+                title=stub_title,
+                severity="info",
+                confidence="medium",
+                evidence=stub_evidence,
+                details={
+                    "matched_signals": matched_signals,
+                    "target": target,
+                    "stub": True,
+                },
+            )
+        ],
+        metadata={
+            "service_status": "stub_fallback",
+            "matched_signals": matched_signals,
+            "target": target,
+            "canonical_target": baseline_context.canonical_url,
+        },
+    )
+
+
 def _match_trigger_signals(
     contract: AdvancedScanContract,
     baseline_context: BaselineContext,
@@ -651,6 +847,29 @@ def _dedupe_preserving_order(values: list[str]) -> list[str]:
         deduped.append(value)
 
     return deduped
+
+
+def _suppress_alias_duplicates(contract_names: list[str]) -> list[str]:
+    if not contract_names:
+        return contract_names
+
+    deduped = list(contract_names)
+    for alias_group in CONTRACT_ALIAS_GROUPS:
+        selected = [name for name in deduped if name in alias_group]
+        if len(selected) <= 1:
+            continue
+
+        keep = selected[0]
+        deduped = [name for name in deduped if name not in alias_group or name == keep]
+
+    return deduped
+
+
+def _is_secondary_alias_name(contract_name: str) -> bool:
+    for alias_group in CONTRACT_ALIAS_GROUPS:
+        if contract_name in alias_group and contract_name != alias_group[0]:
+            return True
+    return False
 
 
 def _resolve_advanced_created_at(scan: dict | None) -> datetime:

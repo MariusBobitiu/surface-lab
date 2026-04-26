@@ -31,6 +31,12 @@ services:
         condition: service_healthy
       scanner:
         condition: service_started
+      laravel-stack:
+        condition: service_started
+      php-stack:
+        condition: service_started
+      ecommerce-stack:
+        condition: service_started
     environment:
       PORT: 8000
       UVICORN_WORKERS: ${ORCHESTRATOR_WORKERS:-2}
@@ -50,6 +56,46 @@ services:
       SCANNER_GRPC_TLS_ENABLED: ${SCANNER_GRPC_TLS_ENABLED:-false}
       SCANNER_GRPC_TLS_CA_FILE: ${SCANNER_GRPC_TLS_CA_FILE:-/certificates/scanner-ca.crt}
       SCANNER_GRPC_TLS_SERVER_NAME: ${SCANNER_GRPC_TLS_SERVER_NAME:-}
+      WP_STACK_ENABLED: ${WP_STACK_ENABLED:-false}
+      WP_STACK_GRPC_ADDRESS: ${WP_STACK_GRPC_ADDRESS:-wp-stack:50062}
+      WP_STACK_SERVICE_TOKEN: ${WP_STACK_SERVICE_TOKEN:-}
+      WP_STACK_GRPC_AUTH_MODE: ${WP_STACK_GRPC_AUTH_MODE:-bearer}
+      WP_STACK_GRPC_TLS_ENABLED: ${WP_STACK_GRPC_TLS_ENABLED:-false}
+      WP_STACK_GRPC_TLS_CA_FILE: ${WP_STACK_GRPC_TLS_CA_FILE:-/certificates/scanner-ca.crt}
+      WP_STACK_GRPC_TLS_SERVER_NAME: ${WP_STACK_GRPC_TLS_SERVER_NAME:-}
+      NEXTJS_STACK_ENABLED: ${NEXTJS_STACK_ENABLED:-false}
+      NEXTJS_STACK_GRPC_ADDRESS: ${NEXTJS_STACK_GRPC_ADDRESS:-nextjs-stack:50061}
+      NEXTJS_STACK_SERVICE_TOKEN: ${NEXTJS_STACK_SERVICE_TOKEN:-}
+      NEXTJS_STACK_GRPC_AUTH_MODE: ${NEXTJS_STACK_GRPC_AUTH_MODE:-bearer}
+      NEXTJS_STACK_GRPC_TLS_ENABLED: ${NEXTJS_STACK_GRPC_TLS_ENABLED:-false}
+      NEXTJS_STACK_GRPC_TLS_CA_FILE: ${NEXTJS_STACK_GRPC_TLS_CA_FILE:-/certificates/scanner-ca.crt}
+      NEXTJS_STACK_GRPC_TLS_SERVER_NAME: ${NEXTJS_STACK_GRPC_TLS_SERVER_NAME:-}
+      LARAVEL_STACK_ENABLED: ${LARAVEL_STACK_ENABLED:-false}
+      LARAVEL_STACK_GRPC_ADDRESS: ${LARAVEL_STACK_GRPC_ADDRESS:-${LARAVEL_STACK_GRPC_ADDR:-laravel-stack:50063}}
+      LARAVEL_STACK_GRPC_ADDR: ${LARAVEL_STACK_GRPC_ADDR:-${LARAVEL_STACK_GRPC_ADDRESS:-laravel-stack:50063}}
+      LARAVEL_STACK_SERVICE_TOKEN: ${LARAVEL_STACK_SERVICE_TOKEN:-}
+      LARAVEL_STACK_GRPC_AUTH_MODE: ${LARAVEL_STACK_GRPC_AUTH_MODE:-bearer}
+      LARAVEL_STACK_GRPC_TLS_ENABLED: ${LARAVEL_STACK_GRPC_TLS_ENABLED:-false}
+      LARAVEL_STACK_GRPC_TLS_CA_FILE: ${LARAVEL_STACK_GRPC_TLS_CA_FILE:-/certificates/scanner-ca.crt}
+      LARAVEL_STACK_GRPC_TLS_SERVER_NAME: ${LARAVEL_STACK_GRPC_TLS_SERVER_NAME:-}
+      PHP_STACK_ENABLED: ${PHP_STACK_ENABLED:-false}
+      PHP_STACK_GRPC_ADDRESS: ${PHP_STACK_GRPC_ADDRESS:-${PHP_STACK_GRPC_ADDR:-php-stack:50064}}
+      PHP_STACK_GRPC_ADDR: ${PHP_STACK_GRPC_ADDR:-${PHP_STACK_GRPC_ADDRESS:-php-stack:50064}}
+      PHP_STACK_SERVICE_TOKEN: ${PHP_STACK_SERVICE_TOKEN:-}
+      PHP_STACK_GRPC_AUTH_MODE: ${PHP_STACK_GRPC_AUTH_MODE:-bearer}
+      PHP_STACK_GRPC_TLS_ENABLED: ${PHP_STACK_GRPC_TLS_ENABLED:-false}
+      PHP_STACK_GRPC_TLS_CA_FILE: ${PHP_STACK_GRPC_TLS_CA_FILE:-/certificates/scanner-ca.crt}
+      PHP_STACK_GRPC_TLS_SERVER_NAME: ${PHP_STACK_GRPC_TLS_SERVER_NAME:-}
+      SHOPIFY_STACK_ENABLED: ${SHOPIFY_STACK_ENABLED:-false}
+      SHOPIFY_STACK_GRPC_ADDRESS: ${SHOPIFY_STACK_GRPC_ADDRESS:-${SHOPIFY_STACK_GRPC_ADDR:-${ECOMMERCE_STACK_GRPC_ADDRESS:-${ECOMMERCE_STACK_GRPC_ADDR:-ecommerce-stack:50065}}}}
+      SHOPIFY_STACK_GRPC_ADDR: ${SHOPIFY_STACK_GRPC_ADDR:-${SHOPIFY_STACK_GRPC_ADDRESS:-${ECOMMERCE_STACK_GRPC_ADDRESS:-${ECOMMERCE_STACK_GRPC_ADDR:-ecommerce-stack:50065}}}}
+      ECOMMERCE_STACK_GRPC_ADDRESS: ${ECOMMERCE_STACK_GRPC_ADDRESS:-${SHOPIFY_STACK_GRPC_ADDRESS:-${SHOPIFY_STACK_GRPC_ADDR:-${ECOMMERCE_STACK_GRPC_ADDR:-ecommerce-stack:50065}}}}
+      ECOMMERCE_STACK_GRPC_ADDR: ${ECOMMERCE_STACK_GRPC_ADDR:-${ECOMMERCE_STACK_GRPC_ADDRESS:-${SHOPIFY_STACK_GRPC_ADDRESS:-${SHOPIFY_STACK_GRPC_ADDR:-ecommerce-stack:50065}}}}
+      SHOPIFY_STACK_SERVICE_TOKEN: ${SHOPIFY_STACK_SERVICE_TOKEN:-}
+      SHOPIFY_STACK_GRPC_AUTH_MODE: ${SHOPIFY_STACK_GRPC_AUTH_MODE:-bearer}
+      SHOPIFY_STACK_GRPC_TLS_ENABLED: ${SHOPIFY_STACK_GRPC_TLS_ENABLED:-false}
+      SHOPIFY_STACK_GRPC_TLS_CA_FILE: ${SHOPIFY_STACK_GRPC_TLS_CA_FILE:-/certificates/scanner-ca.crt}
+      SHOPIFY_STACK_GRPC_TLS_SERVER_NAME: ${SHOPIFY_STACK_GRPC_TLS_SERVER_NAME:-}
       NVD_API_KEY: ${NVD_API_KEY:-}
       NVD_ENABLED: ${NVD_ENABLED:-false}
       NVD_MIN_INTERVAL_SECONDS: ${NVD_MIN_INTERVAL_SECONDS:-6}
@@ -99,6 +145,81 @@ services:
       test:
         - CMD-SHELL
         - "nc -z 127.0.0.1 50051 || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  laravel-stack:
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:-mariusbobitiu}/surfacelab-laravel-stack:${IMAGE_TAG:-latest}
+    environment:
+      APP_ENV: ${LARAVEL_STACK_APP_ENV:-production}
+      GRPC_PORT: 50063
+      SERVICE_TOKEN: ${LARAVEL_STACK_SERVICE_TOKEN}
+      RATE_LIMIT_RPS: ${LARAVEL_STACK_RATE_LIMIT_RPS:-5}
+      RATE_LIMIT_BURST: ${LARAVEL_STACK_RATE_LIMIT_BURST:-10}
+      MAX_CONCURRENT_REQUESTS: ${LARAVEL_STACK_MAX_CONCURRENT_REQUESTS:-4}
+      REQUEST_TIMEOUT_SECONDS: ${LARAVEL_STACK_REQUEST_TIMEOUT_SECONDS:-30}
+      GRPC_TLS_ENABLED: ${LARAVEL_STACK_GRPC_TLS_ENABLED:-false}
+      GRPC_TLS_CERT_FILE: ${LARAVEL_STACK_GRPC_TLS_CERT_FILE:-/certificates/scanner.crt}
+      GRPC_TLS_KEY_FILE: ${LARAVEL_STACK_GRPC_TLS_KEY_FILE:-/certificates/scanner.key}
+    expose:
+      - "50063"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "nc -z 127.0.0.1 50063 || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  php-stack:
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:-mariusbobitiu}/surfacelab-php-stack:${IMAGE_TAG:-latest}
+    environment:
+      APP_ENV: ${PHP_STACK_APP_ENV:-production}
+      GRPC_PORT: 50064
+      SERVICE_TOKEN: ${PHP_STACK_SERVICE_TOKEN}
+      RATE_LIMIT_RPS: ${PHP_STACK_RATE_LIMIT_RPS:-5}
+      RATE_LIMIT_BURST: ${PHP_STACK_RATE_LIMIT_BURST:-10}
+      MAX_CONCURRENT_REQUESTS: ${PHP_STACK_MAX_CONCURRENT_REQUESTS:-4}
+      REQUEST_TIMEOUT_SECONDS: ${PHP_STACK_REQUEST_TIMEOUT_SECONDS:-30}
+      GRPC_TLS_ENABLED: ${PHP_STACK_GRPC_TLS_ENABLED:-false}
+      GRPC_TLS_CERT_FILE: ${PHP_STACK_GRPC_TLS_CERT_FILE:-/certificates/scanner.crt}
+      GRPC_TLS_KEY_FILE: ${PHP_STACK_GRPC_TLS_KEY_FILE:-/certificates/scanner.key}
+    expose:
+      - "50064"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "nc -z 127.0.0.1 50064 || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  ecommerce-stack:
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:-mariusbobitiu}/surfacelab-ecommerce-stack:${IMAGE_TAG:-latest}
+    environment:
+      APP_ENV: ${SHOPIFY_STACK_APP_ENV:-production}
+      GRPC_PORT: 50065
+      SERVICE_TOKEN: ${SHOPIFY_STACK_SERVICE_TOKEN}
+      RATE_LIMIT_RPS: ${SHOPIFY_STACK_RATE_LIMIT_RPS:-5}
+      RATE_LIMIT_BURST: ${SHOPIFY_STACK_RATE_LIMIT_BURST:-10}
+      MAX_CONCURRENT_REQUESTS: ${SHOPIFY_STACK_MAX_CONCURRENT_REQUESTS:-4}
+      REQUEST_TIMEOUT_SECONDS: ${SHOPIFY_STACK_REQUEST_TIMEOUT_SECONDS:-30}
+      GRPC_TLS_ENABLED: ${SHOPIFY_STACK_GRPC_TLS_ENABLED:-false}
+      GRPC_TLS_CERT_FILE: ${SHOPIFY_STACK_GRPC_TLS_CERT_FILE:-/certificates/scanner.crt}
+      GRPC_TLS_KEY_FILE: ${SHOPIFY_STACK_GRPC_TLS_KEY_FILE:-/certificates/scanner.key}
+    expose:
+      - "50065"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "nc -z 127.0.0.1 50065 || exit 1"
       interval: 30s
       timeout: 5s
       retries: 5

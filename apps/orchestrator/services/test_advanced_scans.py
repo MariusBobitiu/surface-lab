@@ -222,6 +222,40 @@ class AdvancedScanExecutionTests(unittest.TestCase):
         self.assertEqual(results[0].metadata["target"], "https://example.com")
         self.assertEqual(results[0].findings[0].tool_name, "advanced_nextjs_stub")
 
+    def test_executes_nextjs_verify_stack_alias(self) -> None:
+        execution_plan = AdvancedExecutionPlan(
+            confidence="high",
+            raw_selected_contracts=["nextjs.v1.verify_stack"],
+            executed_contracts=["nextjs.v1.verify_stack"],
+            notes=[],
+        )
+        baseline_context = build_baseline_context(
+            scan={"id": "scan-1", "target": "https://raw.example.com"},
+            steps=[],
+            findings=[],
+            signals=[
+                SignalResponse(
+                    id="s1",
+                    tool_name="fingerprint/v1",
+                    key="framework.nextjs",
+                    value=True,
+                    confidence="high",
+                    source="fingerprint.combined",
+                    created_at="2026-04-22T10:00:00Z",
+                ),
+            ],
+            evidence=[],
+        )
+
+        results = execute_advanced_scan_plan(
+            planner_result=execution_plan,
+            baseline_context=baseline_context,
+            scan={"target": "https://raw.example.com"},
+        )
+
+        self.assertEqual(results[0].contract, "nextjs.v1.verify_stack")
+        self.assertEqual(results[0].findings[0].tool_name, "advanced_nextjs_stub")
+
     def test_analyze_baseline_matches_frontend_framework_contract(self) -> None:
         baseline_context = build_baseline_context(
             scan={"id": "scan-1", "target": "https://example.com"},
@@ -257,6 +291,94 @@ class AdvancedScanExecutionTests(unittest.TestCase):
             analysis["contract_signal_matches"]["frontend_frameworks.v1.run_stack"],
             ["framework.vue", "framework.vite"],
         )
+
+    def test_laravel_signal_maps_to_contract(self) -> None:
+        baseline_context = build_baseline_context(
+            scan={"id": "scan-1", "target": "https://example.com"},
+            steps=[],
+            findings=[],
+            signals=[
+                SignalResponse(
+                    id="s1",
+                    tool_name="fingerprint/v1",
+                    key="framework.laravel",
+                    value=True,
+                    confidence="high",
+                    source="fingerprint.html",
+                    created_at="2026-04-22T10:00:00Z",
+                ),
+            ],
+            evidence=[],
+        )
+
+        analysis = analyze_baseline_findings(baseline_context)
+        self.assertEqual(analysis["contract_signal_matches"]["laravel.v1.verify_stack"], ["framework.laravel"])
+
+    def test_php_contract_suppressed_when_laravel_is_selected(self) -> None:
+        planner_result = PlannerSelection(
+            selected_contracts=["laravel.v1.verify_stack", "php.v1.verify_stack"],
+            skipped_contracts=[],
+            reasoning_summary="Laravel and PHP both selected by planner.",
+            confidence="high",
+        )
+
+        execution_plan = build_advanced_execution_plan(planner_result)
+        self.assertEqual(execution_plan.executed_contracts, ["laravel.v1.verify_stack"])
+
+    def test_alias_duplicates_are_suppressed(self) -> None:
+        planner_result = PlannerSelection(
+            selected_contracts=["wordpress.v1.run_stack", "wordpress.v1.verify_stack"],
+            skipped_contracts=[],
+            reasoning_summary="Both alias names selected by planner.",
+            confidence="high",
+        )
+
+        execution_plan = build_advanced_execution_plan(planner_result)
+        self.assertEqual(execution_plan.executed_contracts, ["wordpress.v1.run_stack"])
+
+    def test_executes_shopify_stub_contract_with_canonical_target(self) -> None:
+        execution_plan = AdvancedExecutionPlan(
+            confidence="high",
+            raw_selected_contracts=["shopify.v1.verify_stack"],
+            executed_contracts=["shopify.v1.verify_stack"],
+            notes=[],
+        )
+        baseline_context = build_baseline_context(
+            scan={"id": "scan-1", "target": "https://raw.example.com"},
+            steps=[],
+            findings=[],
+            signals=[
+                SignalResponse(
+                    id="s1",
+                    tool_name="fingerprint/v1",
+                    key="platform.shopify",
+                    value=True,
+                    confidence="high",
+                    source="fingerprint.html",
+                    created_at="2026-04-22T10:00:00Z",
+                ),
+                SignalResponse(
+                    id="s2",
+                    tool_name="targeting/v1",
+                    key="transport.canonical_url",
+                    value="https://shop.example.com",
+                    confidence="high",
+                    source="targeting.redirect_chain",
+                    created_at="2026-04-22T10:00:00Z",
+                ),
+            ],
+            evidence=[],
+        )
+
+        results = execute_advanced_scan_plan(
+            planner_result=execution_plan,
+            baseline_context=baseline_context,
+            scan={"target": "https://raw.example.com", "canonical_target": "https://shop.example.com"},
+        )
+
+        self.assertEqual(results[0].contract, "shopify.v1.verify_stack")
+        self.assertEqual(results[0].metadata["target"], "https://shop.example.com")
+        self.assertEqual(results[0].findings[0].tool_name, "advanced_shopify_stub")
 
 
 if __name__ == "__main__":
