@@ -25,6 +25,8 @@ const INITIAL_STEPS: ProgressStep[] = [
 ]
 
 const REVEAL_INTERVAL_MS = 300
+const COMPLETED_REVEAL_INTERVAL_MS = 80
+const MIN_PROGRESS_VISIBLE_MS = 2_400
 
 export function ScanProgress({ scanId }: ScanProgressProps) {
   const router = useRouter()
@@ -35,11 +37,27 @@ export function ScanProgress({ scanId }: ScanProgressProps) {
   const canonicalStepsRef = React.useRef<ProgressStep[]>(INITIAL_STEPS)
   const pendingRevealRef = React.useRef<ProgressStep[]>([])
   const revealTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const completionTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const scanCompletedRef = React.useRef(false)
+  const progressStartedAtRef = React.useRef(Date.now())
 
   const hasOpenedStreamRef = React.useRef(false)
   const hasReceivedEventRef = React.useRef(false)
   const loggedConnectionErrorRef = React.useRef(false)
+
+  const maybeCompleteProgress = React.useCallback(() => {
+    if (!scanCompletedRef.current || completionRequested) return
+    if (pendingRevealRef.current.length > 0 || revealTimerRef.current !== null) return
+    if (completionTimerRef.current !== null) return
+
+    const elapsedMs = Date.now() - progressStartedAtRef.current
+    const remainingMs = Math.max(0, MIN_PROGRESS_VISIBLE_MS - elapsedMs)
+
+    completionTimerRef.current = setTimeout(() => {
+      completionTimerRef.current = null
+      setCompletionRequested(true)
+    }, remainingMs)
+  }, [completionRequested])
 
   const scheduleReveal = React.useCallback(() => {
     if (revealTimerRef.current !== null) return
@@ -47,21 +65,27 @@ export function ScanProgress({ scanId }: ScanProgressProps) {
     const tick = () => {
       revealTimerRef.current = null
       const queue = pendingRevealRef.current
-      if (queue.length === 0) return
+      if (queue.length === 0) {
+        maybeCompleteProgress()
+        return
+      }
 
       const next = queue[0]!
       pendingRevealRef.current = queue.slice(1)
       setVisibleSteps((current) => mergeStep(current, next))
 
       if (pendingRevealRef.current.length > 0) {
-        const delay = scanCompletedRef.current ? 80 : REVEAL_INTERVAL_MS
+        const delay = scanCompletedRef.current ? COMPLETED_REVEAL_INTERVAL_MS : REVEAL_INTERVAL_MS
         revealTimerRef.current = setTimeout(tick, delay)
+        return
       }
+
+      maybeCompleteProgress()
     }
 
-    const delay = scanCompletedRef.current ? 80 : REVEAL_INTERVAL_MS
+    const delay = scanCompletedRef.current ? COMPLETED_REVEAL_INTERVAL_MS : REVEAL_INTERVAL_MS
     revealTimerRef.current = setTimeout(tick, delay)
-  }, [])
+  }, [maybeCompleteProgress])
 
   const enqueueStepUpdate = React.useCallback(
     (stepUpdate: ProgressStep) => {
@@ -122,9 +146,9 @@ export function ScanProgress({ scanId }: ScanProgressProps) {
         if (event.type === "scan.completed") {
           scanCompletedRef.current = true
           setConnectionState("completed")
-          setCompletionRequested(true)
           eventSource.close()
           scheduleReveal()
+          maybeCompleteProgress()
         }
       } catch {
         setConnectionState((current) => (current === "completed" ? current : "reconnecting"))
@@ -145,9 +169,10 @@ export function ScanProgress({ scanId }: ScanProgressProps) {
       cancelled = true
       window.clearTimeout(connectionGracePeriodId)
       if (revealTimerRef.current !== null) clearTimeout(revealTimerRef.current)
+      if (completionTimerRef.current !== null) clearTimeout(completionTimerRef.current)
       eventSource.close()
     }
-  }, [scanId, enqueueStepUpdate, scheduleReveal])
+  }, [scanId, enqueueStepUpdate, maybeCompleteProgress, scheduleReveal])
 
   React.useEffect(() => {
     if (connectionState !== "reconnecting") return
