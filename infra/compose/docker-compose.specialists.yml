@@ -1,0 +1,140 @@
+services:
+  nextjs-stack:
+    build:
+      context: ../..
+      dockerfile: infra/docker/nextjs-stack/Dockerfile
+    image: surfacelab/nextjs-stack:local
+    environment:
+      APP_ENV: ${NEXTJS_STACK_APP_ENV:-development}
+      GRPC_PORT: 50061
+      SERVICE_TOKEN: ${NEXTJS_STACK_SERVICE_TOKEN:-dev-nextjs-stack-token}
+      RATE_LIMIT_RPS: ${NEXTJS_STACK_RATE_LIMIT_RPS:-5}
+      RATE_LIMIT_BURST: ${NEXTJS_STACK_RATE_LIMIT_BURST:-10}
+      MAX_CONCURRENT_REQUESTS: ${NEXTJS_STACK_MAX_CONCURRENT_REQUESTS:-4}
+      REQUEST_TIMEOUT_SECONDS: ${NEXTJS_STACK_REQUEST_TIMEOUT_SECONDS:-30}
+      GRPC_TLS_ENABLED: ${NEXTJS_STACK_GRPC_TLS_ENABLED:-false}
+      GRPC_TLS_CERT_FILE: ${NEXTJS_STACK_GRPC_TLS_CERT_FILE:-/certificates/scanner.crt}
+      GRPC_TLS_KEY_FILE: ${NEXTJS_STACK_GRPC_TLS_KEY_FILE:-/certificates/scanner.key}
+    ports:
+      - "${NEXTJS_STACK_HOST_PORT:-50061}:50061"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "nc -z 127.0.0.1 50061 || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  wp-stack:
+    build:
+      context: ../..
+      dockerfile: infra/docker/wp-stack/Dockerfile
+    image: surfacelab/wp-stack:local
+    environment:
+      APP_ENV: ${WP_STACK_APP_ENV:-development}
+      GRPC_PORT: 50062
+      SERVICE_TOKEN: ${WP_STACK_SERVICE_TOKEN:-dev-wp-stack-token}
+      RATE_LIMIT_RPS: ${WP_STACK_RATE_LIMIT_RPS:-5}
+      RATE_LIMIT_BURST: ${WP_STACK_RATE_LIMIT_BURST:-10}
+      MAX_CONCURRENT_REQUESTS: ${WP_STACK_MAX_CONCURRENT_REQUESTS:-4}
+      REQUEST_TIMEOUT_SECONDS: ${WP_STACK_REQUEST_TIMEOUT_SECONDS:-30}
+      GRPC_TLS_ENABLED: ${WP_STACK_GRPC_TLS_ENABLED:-false}
+      GRPC_TLS_CERT_FILE: ${WP_STACK_GRPC_TLS_CERT_FILE:-/certificates/scanner.crt}
+      GRPC_TLS_KEY_FILE: ${WP_STACK_GRPC_TLS_KEY_FILE:-/certificates/scanner.key}
+    ports:
+      - "${WP_STACK_HOST_PORT:-50062}:50062"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "nc -z 127.0.0.1 50062 || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  laravel-stack:
+    build:
+      context: ../..
+      dockerfile: infra/docker/laravel-stack/Dockerfile
+    image: surfacelab/laravel-stack:local
+    environment:
+      APP_ENV: ${LARAVEL_STACK_APP_ENV:-development}
+      GRPC_PORT: 50063
+      SERVICE_TOKEN: ${LARAVEL_STACK_SERVICE_TOKEN:-dev-laravel-stack-token}
+      RATE_LIMIT_RPS: ${LARAVEL_STACK_RATE_LIMIT_RPS:-5}
+      RATE_LIMIT_BURST: ${LARAVEL_STACK_RATE_LIMIT_BURST:-10}
+      MAX_CONCURRENT_REQUESTS: ${LARAVEL_STACK_MAX_CONCURRENT_REQUESTS:-4}
+      REQUEST_TIMEOUT_SECONDS: ${LARAVEL_STACK_REQUEST_TIMEOUT_SECONDS:-30}
+      GRPC_TLS_ENABLED: ${LARAVEL_STACK_GRPC_TLS_ENABLED:-false}
+      GRPC_TLS_CERT_FILE: ${LARAVEL_STACK_GRPC_TLS_CERT_FILE:-/certificates/scanner.crt}
+      GRPC_TLS_KEY_FILE: ${LARAVEL_STACK_GRPC_TLS_KEY_FILE:-/certificates/scanner.key}
+    ports:
+      - "${LARAVEL_STACK_HOST_PORT:-50063}:50063"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "nc -z 127.0.0.1 50063 || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  php-stack:
+    build:
+      context: ../..
+      dockerfile: infra/docker/php-stack/Dockerfile
+    image: surfacelab/php-stack:local
+    environment:
+      APP_ENV: ${PHP_STACK_APP_ENV:-development}
+      GRPC_PORT: 50064
+      SERVICE_TOKEN: ${PHP_STACK_SERVICE_TOKEN:-dev-php-stack-token}
+      RATE_LIMIT_RPS: ${PHP_STACK_RATE_LIMIT_RPS:-5}
+      RATE_LIMIT_BURST: ${PHP_STACK_RATE_LIMIT_BURST:-10}
+      MAX_CONCURRENT_REQUESTS: ${PHP_STACK_MAX_CONCURRENT_REQUESTS:-4}
+      REQUEST_TIMEOUT_SECONDS: ${PHP_STACK_REQUEST_TIMEOUT_SECONDS:-30}
+      GRPC_TLS_ENABLED: ${PHP_STACK_GRPC_TLS_ENABLED:-false}
+      GRPC_TLS_CERT_FILE: ${PHP_STACK_GRPC_TLS_CERT_FILE:-/certificates/scanner.crt}
+      GRPC_TLS_KEY_FILE: ${PHP_STACK_GRPC_TLS_KEY_FILE:-/certificates/scanner.key}
+    ports:
+      - "${PHP_STACK_HOST_PORT:-50064}:50064"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "nc -z 127.0.0.1 50064 || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  ecommerce-stack:
+    build:
+      context: ../..
+      dockerfile: infra/docker/ecommerce-stack/Dockerfile
+    image: surfacelab/ecommerce-stack:local
+    environment:
+      APP_ENV: ${SHOPIFY_STACK_APP_ENV:-development}
+      GRPC_PORT: 50065
+      SERVICE_TOKEN: ${SHOPIFY_STACK_SERVICE_TOKEN:-dev-shopify-stack-token}
+      RATE_LIMIT_RPS: ${SHOPIFY_STACK_RATE_LIMIT_RPS:-5}
+      RATE_LIMIT_BURST: ${SHOPIFY_STACK_RATE_LIMIT_BURST:-10}
+      MAX_CONCURRENT_REQUESTS: ${SHOPIFY_STACK_MAX_CONCURRENT_REQUESTS:-4}
+      REQUEST_TIMEOUT_SECONDS: ${SHOPIFY_STACK_REQUEST_TIMEOUT_SECONDS:-30}
+      GRPC_TLS_ENABLED: ${SHOPIFY_STACK_GRPC_TLS_ENABLED:-false}
+      GRPC_TLS_CERT_FILE: ${SHOPIFY_STACK_GRPC_TLS_CERT_FILE:-/certificates/scanner.crt}
+      GRPC_TLS_KEY_FILE: ${SHOPIFY_STACK_GRPC_TLS_KEY_FILE:-/certificates/scanner.key}
+    ports:
+      - "${SHOPIFY_STACK_HOST_PORT:-50065}:50065"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "nc -z 127.0.0.1 50065 || exit 1"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped

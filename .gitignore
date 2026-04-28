@@ -4,6 +4,7 @@
 
 ### dotenv ###
 .env
+scripts/build-specialist-containers.sh
 
 ### Go ###
 # If you prefer the allow list template instead of the deny list, see community template:
@@ -451,3 +452,5 @@ pip-selfcheck.json
 # Proto contracts
 *.proto
 !proto/.gitkeep
+
+infra/compose/docker-compose.specialists.dokploy.yml

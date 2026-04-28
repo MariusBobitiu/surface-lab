@@ -1,4 +1,4 @@
-FROM golang:1.24-alpine AS builder
+FROM golang:1.25-alpine AS builder
 WORKDIR /src
 
 COPY services/wp-stack/go.mod services/wp-stack/go.sum ./services/wp-stack/
