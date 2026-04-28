@@ -206,6 +206,9 @@ def route_after_plan(state: EnrichedReportGraphState) -> Literal[
 ]:
     planner_result = state["planner_result"]
 
+    if planner_result.source == "deterministic" and planner_result.selected_contracts:
+        return "execute_selected_contracts_node"
+
     if planner_result.confidence == "low":
         return "execute_generic_only_node"
 

@@ -39,6 +39,19 @@ class WorkflowRoutingTests(unittest.TestCase):
 
         self.assertEqual(route_after_plan(state), "execute_generic_only_node")
 
+    def test_route_after_plan_deterministic_selection_executes_selected_contracts(self) -> None:
+        state = {
+            "planner_result": PlannerSelection(
+                selected_contracts=["wordpress.v1.run_stack"],
+                skipped_contracts=[],
+                reasoning_summary="Deterministic fallback matched strong baseline evidence.",
+                confidence="low",
+                source="deterministic",
+            )
+        }
+
+        self.assertEqual(route_after_plan(state), "execute_selected_contracts_node")
+
     def test_route_after_evaluation_retries_before_replanning(self) -> None:
         state = {
             "retryable_contracts": ["wordpress.v1.run_stack"],

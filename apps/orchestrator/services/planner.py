@@ -238,6 +238,7 @@ def _normalize_plan(plan: PlannerSelection) -> PlannerSelection:
         skipped_contracts=skipped_contracts,
         reasoning_summary=reasoning_summary,
         confidence=plan.confidence,
+        source=plan.source,
     )
 
 
@@ -313,6 +314,7 @@ def _build_fallback_plan(baseline_context: BaselineContext) -> PlannerSelection:
         skipped_contracts=skipped_contracts,
         reasoning_summary="Using deterministic fallback planner output because the LLM plan was unavailable or invalid.",
         confidence="low",
+        source="deterministic",
     )
 
 

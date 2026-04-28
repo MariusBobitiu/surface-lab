@@ -103,6 +103,7 @@ def execute_advanced_scan_plan(
 def build_advanced_execution_plan(planner_result: PlannerSelection) -> AdvancedExecutionPlan:
     raw_selected_contracts = _dedupe_preserving_order(planner_result.selected_contracts)
     raw_selected_contracts = _suppress_alias_duplicates(raw_selected_contracts)
+    is_deterministic_plan = planner_result.source == "deterministic"
     if "php.v1.verify_stack" in raw_selected_contracts and (
         "wordpress.v1.run_stack" in raw_selected_contracts or "laravel.v1.verify_stack" in raw_selected_contracts
     ):
@@ -119,7 +120,18 @@ def build_advanced_execution_plan(planner_result: PlannerSelection) -> AdvancedE
                 "Planner confidence was medium, so the orchestrator added generic_http.v1.run_stack for broader coverage."
             )
     elif planner_result.confidence == "low":
-        if generic_contract is not None:
+        if is_deterministic_plan:
+            if specialist_contracts and generic_contract and generic_contract not in executed_contracts:
+                executed_contracts.append(generic_contract)
+                notes.append(
+                    "Deterministic planner output runs selected specialists plus generic_http.v1.run_stack because no LLM confidence score was available."
+                )
+            elif not executed_contracts and generic_contract is not None:
+                executed_contracts = [generic_contract]
+                notes.append(
+                    "Deterministic planner output had no specialist matches, so the orchestrator ran generic_http.v1.run_stack only."
+                )
+        elif generic_contract is not None:
             executed_contracts = [generic_contract]
             if specialist_contracts or generic_contract not in raw_selected_contracts:
                 notes.append(

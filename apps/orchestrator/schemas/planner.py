@@ -8,6 +8,7 @@ class PlannerSelection(BaseModel):
     skipped_contracts: list[str] = Field(default_factory=list)
     reasoning_summary: str
     confidence: Literal["low", "medium", "high"]
+    source: Literal["llm", "deterministic"] = "llm"
 
 
 class VulnerabilityResearchQuery(BaseModel):

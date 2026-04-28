@@ -52,6 +52,7 @@ class AdvancedPlannerTests(unittest.TestCase):
 
         self.assertEqual(result.selected_contracts, ["wordpress.v1.run_stack", "generic_http.v1.run_stack"])
         self.assertEqual(result.confidence, "low")
+        self.assertEqual(result.source, "deterministic")
 
     def test_rejects_unknown_contracts_from_llm_output(self) -> None:
         findings: list[FindingResponse] = []
